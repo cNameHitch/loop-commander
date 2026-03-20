@@ -14,7 +14,7 @@ class DaemonMonitor: ObservableObject {
     private let maxReconnectDelay: TimeInterval = 30.0
     private var started = false
     private var consecutiveFailures = 0
-    private let maxConsecutiveFailures = 3
+    private let maxConsecutiveFailures = 5
 
     init(client: DaemonClient) {
         self.client = client
@@ -63,11 +63,11 @@ class DaemonMonitor: ObservableObject {
                         consecutiveFailures += 1
                         if consecutiveFailures >= maxConsecutiveFailures {
                             isConnected = false
+                            lastError = "Daemon connection lost"
                             client.disconnect()
                             break
                         }
-                        // Transient failure — log but keep going
-                        lastError = "Health check failed (\(consecutiveFailures)/\(maxConsecutiveFailures))"
+                        // Transient failure — don't update UI, just track internally
                     }
                 }
             } catch {
