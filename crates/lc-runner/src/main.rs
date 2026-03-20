@@ -193,7 +193,7 @@ async fn main() -> Result<()> {
     // The only exception is if the task was already Paused or Disabled
     // before this run -- in that case we preserve the original status.
     let new_status = match task.status {
-        TaskStatus::Paused | TaskStatus::Disabled => task.status.clone(),
+        TaskStatus::Paused | TaskStatus::Disabled => task.status,
         _ => TaskStatus::Active,
     };
     restore_task_status(&config_manager, &task, new_status);
