@@ -117,11 +117,11 @@ jobs:
 
           # Create tarball with binaries
           TARBALL="loop-commander-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz"
-          tar -C dist -czf "$TARBALL" loop-commander lc-runner lc
+          tar -C dist -czf "dist/$TARBALL" loop-commander lc-runner lc
 
           echo "artifacts=$TARBALL" >> $GITHUB_OUTPUT
-          echo "Built tarball: $TARBALL"
-          ls -lh "$TARBALL"
+          echo "Built tarball: dist/$TARBALL"
+          ls -lh "dist/$TARBALL"
 
       - name: Build Swift app
         id: build-app
