@@ -81,6 +81,15 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
 </plist>
 PLIST
 
+# Code sign the app bundle (required for notifications)
+# Try developer cert first, fall back to ad-hoc
+SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/' || echo "")
+if [ -n "$SIGN_IDENTITY" ] && [ "$SIGN_IDENTITY" != "0 valid identities found" ]; then
+    codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR" 2>/dev/null && echo "Signed with: $SIGN_IDENTITY" || echo "Warning: codesign failed."
+else
+    codesign --force --deep --sign - "$APP_DIR" 2>/dev/null && echo "Ad-hoc signed." || echo "Warning: codesign failed."
+fi
+
 echo "Built: $APP_DIR"
 echo ""
 echo "To run:  open \"$APP_DIR\""

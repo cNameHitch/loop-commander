@@ -3,6 +3,15 @@ import SwiftUI
 struct MetricsBarView: View {
     let metrics: DashboardMetrics
     let isConnected: Bool
+    var taskStatuses: [TaskStatus] = []
+
+    /// Count tasks that are actively scheduled (active or currently running)
+    private var activeTaskCount: Int {
+        if taskStatuses.isEmpty {
+            return metrics.activeTasks
+        }
+        return taskStatuses.filter { $0 == .active || $0 == .running }.count
+    }
 
     private let columns = [
         GridItem(.adaptive(minimum: 120), spacing: 10)
@@ -12,7 +21,7 @@ struct MetricsBarView: View {
         LazyVGrid(columns: columns, spacing: 12) {
             MetricCard(
                 label: "Active Tasks",
-                value: "\(metrics.activeTasks)",
+                value: "\(activeTaskCount)",
                 sub: "\(metrics.totalTasks) total",
                 accent: .lcAccent
             )

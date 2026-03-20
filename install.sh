@@ -107,6 +107,79 @@ require_cmd unzip
 require_cmd shasum
 
 # ---------------------------------------------------------------------------
+# Code signing helper (required for macOS notifications)
+# ---------------------------------------------------------------------------
+
+CERT_NAME="Loop Commander Dev"
+
+sign_app_bundle() {
+    local app_path="$1"
+
+    # Check if a signing identity already exists
+    if security find-identity -v -p codesigning 2>/dev/null | grep -q "${CERT_NAME}"; then
+        info "  Signing app with existing '${CERT_NAME}' certificate..."
+        codesign --force --deep --sign "${CERT_NAME}" "${app_path}" 2>/dev/null
+        info "  App signed successfully."
+        return 0
+    fi
+
+    info "  Creating code signing certificate for notifications..."
+    info "  (macOS requires a signed app bundle for notification permissions)"
+
+    # Create a self-signed code signing certificate
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+
+    cat > "${tmpdir}/cert.conf" << 'CERTEOF'
+[ req ]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+[ dn ]
+CN = Loop Commander Dev
+O = Loop Commander
+[ v3_code_sign ]
+keyUsage = critical, digitalSignature
+extendedKeyUsage = codeSigning
+CERTEOF
+
+    # Generate certificate and key
+    openssl req -x509 -newkey rsa:2048 \
+        -keyout "${tmpdir}/key.pem" \
+        -out "${tmpdir}/cert.pem" \
+        -days 365 -nodes \
+        -config "${tmpdir}/cert.conf" \
+        -extensions v3_code_sign 2>/dev/null
+
+    # Import into login keychain
+    security import "${tmpdir}/cert.pem" \
+        -k "${HOME}/Library/Keychains/login.keychain-db" \
+        -T /usr/bin/codesign 2>/dev/null || true
+    security import "${tmpdir}/key.pem" \
+        -k "${HOME}/Library/Keychains/login.keychain-db" \
+        -T /usr/bin/codesign 2>/dev/null || true
+
+    # Trust the certificate for code signing
+    security add-trusted-cert -d -r trustRoot \
+        -k "${HOME}/Library/Keychains/login.keychain-db" \
+        "${tmpdir}/cert.pem" 2>/dev/null || true
+
+    rm -rf "${tmpdir}"
+
+    # Verify the identity was created
+    if security find-identity -v -p codesigning 2>/dev/null | grep -q "${CERT_NAME}"; then
+        info "  Certificate created. Signing app bundle..."
+        codesign --force --deep --sign "${CERT_NAME}" "${app_path}" 2>/dev/null
+        info "  App signed successfully."
+    else
+        warn "  Could not create signing certificate. Falling back to ad-hoc signing."
+        warn "  Notifications may not work. You can enable them manually in System Settings."
+        codesign --force --deep --sign - "${app_path}" 2>/dev/null || true
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Resolve version
 # ---------------------------------------------------------------------------
 
@@ -238,6 +311,11 @@ if [[ "${CLI_ONLY}" == "false" ]]; then
 
     cp -R "${APP_BUNDLE}" "${APP_DIR}/Loop Commander.app"
     info "  Installed ${APP_DIR}/Loop Commander.app"
+
+    # Sign the app bundle so macOS notifications work properly.
+    # Without signing, UNUserNotificationCenter denies permission requests.
+    sign_app_bundle "${APP_DIR}/Loop Commander.app"
+
     success "macOS app installed to ${APP_DIR}."
 fi
 

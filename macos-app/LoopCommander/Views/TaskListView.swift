@@ -19,7 +19,8 @@ struct TaskListView: View {
             // Metrics bar
             MetricsBarView(
                 metrics: dashboardVM.metrics,
-                isConnected: daemonMonitor.isConnected
+                isConnected: daemonMonitor.isConnected,
+                taskStatuses: taskListVM.tasks.map(\.status)
             )
 
             // Toolbar: title + new task button

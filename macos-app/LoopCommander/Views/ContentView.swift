@@ -24,6 +24,7 @@ struct ContentView: View {
     @EnvironmentObject var taskListVM: TaskListViewModel
     @EnvironmentObject var dashboardVM: DashboardViewModel
     @EnvironmentObject var eventStream: EventStream
+    @EnvironmentObject var notificationManager: NotificationManager
 
     var body: some View {
         HSplitView {
@@ -222,8 +223,35 @@ struct ContentView: View {
             }
         }
 
-        eventStream.onTaskFailed = { taskId, taskName in
-            // Could integrate with UserNotifications here
+        let nm = notificationManager
+        eventStream.onTaskCompleted = { taskId, taskName, durationSecs, costUsd in
+            Task { @MainActor in
+                nm.sendTaskSuccess(
+                    taskId: taskId,
+                    taskName: taskName,
+                    durationSecs: durationSecs,
+                    costUsd: costUsd
+                )
+            }
+        }
+
+        eventStream.onTaskFailed = { taskId, taskName, exitCode, summary in
+            Task { @MainActor in
+                if summary.lowercased().contains("timeout") {
+                    nm.sendTaskTimeout(
+                        taskId: taskId,
+                        taskName: taskName,
+                        summary: summary
+                    )
+                } else {
+                    nm.sendTaskFailure(
+                        taskId: taskId,
+                        taskName: taskName,
+                        exitCode: exitCode,
+                        summary: summary
+                    )
+                }
+            }
         }
     }
 }

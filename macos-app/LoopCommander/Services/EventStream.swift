@@ -18,8 +18,8 @@ class EventStream: ObservableObject {
 
     /// Callbacks for specific event types
     var onTaskStarted: ((String, String) -> Void)?
-    var onTaskCompleted: ((String, String) -> Void)?
-    var onTaskFailed: ((String, String) -> Void)?
+    var onTaskCompleted: ((String, String, Int, Double?) -> Void)?
+    var onTaskFailed: ((String, String, Int, String) -> Void)?
     var onTaskStatusChanged: ((String) -> Void)?
     var onAnyEvent: (() -> Void)?
 
@@ -212,10 +212,10 @@ class EventStream: ObservableObject {
         switch event {
         case .taskStarted(let taskId, let taskName):
             onTaskStarted?(taskId, taskName)
-        case .taskCompleted(let taskId, let taskName, _, _):
-            onTaskCompleted?(taskId, taskName)
-        case .taskFailed(let taskId, let taskName, _, _):
-            onTaskFailed?(taskId, taskName)
+        case .taskCompleted(let taskId, let taskName, let durationSecs, let costUsd):
+            onTaskCompleted?(taskId, taskName, durationSecs, costUsd)
+        case .taskFailed(let taskId, let taskName, let exitCode, let summary):
+            onTaskFailed?(taskId, taskName, exitCode, summary)
         case .taskStatusChanged(let taskId, _, _):
             onTaskStatusChanged?(taskId)
         default:

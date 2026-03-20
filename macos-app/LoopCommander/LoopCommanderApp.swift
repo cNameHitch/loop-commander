@@ -6,6 +6,7 @@ struct LoopCommanderApp: App {
     @StateObject private var eventStream = EventStream()
     @StateObject private var taskListVM = TaskListViewModel()
     @StateObject private var dashboardVM = DashboardViewModel()
+    @StateObject private var notificationManager = NotificationManager()
 
     init() {
         let client = DaemonClient()
@@ -20,6 +21,7 @@ struct LoopCommanderApp: App {
                 .environmentObject(eventStream)
                 .environmentObject(taskListVM)
                 .environmentObject(dashboardVM)
+                .environmentObject(notificationManager)
                 .task {
                     // Initialize ViewModels with client
                     taskListVM.setClient(daemonMonitor.client)
@@ -30,6 +32,10 @@ struct LoopCommanderApp: App {
 
                     // Start event stream (idempotent)
                     eventStream.start()
+
+                    // Setup notifications
+                    notificationManager.setup()
+                    notificationManager.daemonClient = daemonMonitor.client
                 }
         }
         .defaultSize(width: 1200, height: 800)
