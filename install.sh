@@ -216,9 +216,10 @@ fi
 # Build asset names
 # ---------------------------------------------------------------------------
 
-TARBALL="intern-${VERSION}-darwin-arm64.tar.gz"
-APP_ZIP="Intern-${VERSION}.zip"
-CHECKSUMS="checksums.txt"
+ASSET_VERSION="${VERSION#v}"
+TARBALL="intern-${ASSET_VERSION}-darwin-arm64.tar.gz"
+APP_ZIP="Intern-${ASSET_VERSION}.zip"
+CHECKSUMS="CHECKSUMS.txt"
 
 TARBALL_URL="${GITHUB_RELEASES}/${VERSION}/${TARBALL}"
 APP_ZIP_URL="${GITHUB_RELEASES}/${VERSION}/${APP_ZIP}"
