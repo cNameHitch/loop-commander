@@ -217,6 +217,9 @@ async fn dispatch(
         // Prompt generation
         "prompt.generate" => crate::prompt_handler::handle_prompt_generate(id, params, state).await,
 
+        // Prompt optimization
+        "prompt.optimize" => crate::prompt_handler::handle_prompt_optimize(id, params, state).await,
+
         // Agent registry
         "registry.refresh" => crate::prompt_handler::handle_registry_refresh(id, state).await,
         "registry.list" => crate::prompt_handler::handle_registry_list(id, state).await,

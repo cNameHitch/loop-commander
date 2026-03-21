@@ -151,6 +151,16 @@ struct EditorView: View {
                 .background(statusColor(for: task.status).opacity(0.15))
                 .cornerRadius(LCRadius.badge)
 
+            // Optimize button (existing tasks with history)
+            Button("Optimize") {
+                NotificationCenter.default.post(
+                    name: .editorOpenTask,
+                    object: nil,
+                    userInfo: ["task": task]
+                )
+            }
+            .buttonStyle(LCToolbarButtonStyle())
+
             // Edit button
             Button("Edit") {
                 NotificationCenter.default.post(
@@ -540,6 +550,16 @@ struct EditorView: View {
                         vm: vm.promptGeneratorVM,
                         draft: $vm.draft,
                         workingDir: vm.draft.workingDir
+                    )
+                    .padding(.bottom, 8)
+                }
+
+                // AI Prompt Optimizer (existing tasks only)
+                if case .editing(let taskId) = vm.editorState {
+                    PromptOptimizerPanel(
+                        vm: vm.promptOptimizerVM,
+                        taskId: taskId,
+                        onApply: { vm.applyOptimization() }
                     )
                     .padding(.bottom, 8)
                 }

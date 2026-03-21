@@ -474,6 +474,634 @@ pub fn validate_generated_prompt(
     )
 }
 
+// ── Optimization Meta-Prompt ────────────────────────────
+
+/// The meta-prompt sent to Claude to optimize a task's command based on
+/// its execution history.
+///
+/// Template variables:
+/// - `{{TASK_NAME}}`: The task's name
+/// - `{{TASK_DESCRIPTION}}`: One-sentence description of the task
+/// - `{{CURRENT_COMMAND}}`: The current command text
+/// - `{{EXECUTION_HISTORY}}`: Formatted, truncated log entries with pattern annotations
+/// - `{{AGENT_BLOCK}}`: Tagged agent descriptions, or an empty string if none
+pub const OPTIMIZATION_META_PROMPT: &str =
+    include_str!("../templates/optimization_meta_prompt.txt");
+
+// ── Optimization Types ──────────────────────────────────
+
+/// Which aspect of the prompt to focus the optimization on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptimizationFocus {
+    Efficiency,
+    Quality,
+    Consistency,
+    Resilience,
+    All,
+}
+
+impl Default for OptimizationFocus {
+    fn default() -> Self {
+        Self::All
+    }
+}
+
+impl std::fmt::Display for OptimizationFocus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::Efficiency => "efficiency",
+            Self::Quality => "quality",
+            Self::Consistency => "consistency",
+            Self::Resilience => "resilience",
+            Self::All => "all",
+        };
+        write!(f, "{s}")
+    }
+}
+
+/// A category of optimization applied to the command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptimizationCategory {
+    Efficiency,
+    Quality,
+    Consistency,
+    Resilience,
+    Scope,
+}
+
+/// The structured output Claude returns for a prompt optimization request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizationResult {
+    /// The full optimized command text.
+    pub optimized_command: String,
+    /// Plain English description of what changed and why (max 200 words).
+    pub changes_summary: String,
+    /// Confidence score in [0, 100].
+    pub confidence_score: u8,
+    /// Which categories of optimization were applied.
+    ///
+    /// Kept as `Vec<String>` so Swift can receive the raw values and map them
+    /// locally without requiring the Rust enum on the wire.
+    pub optimization_categories: Vec<String>,
+}
+
+/// A condensed view of one execution log entry formatted for the optimization prompt.
+#[derive(Debug, Clone, Serialize)]
+pub struct LogSummary {
+    /// Zero-based index of this run in the ordered history.
+    pub run_index: u32,
+    /// ISO-8601 timestamp when the run started.
+    pub started_at: String,
+    /// Wall-clock duration of the run in seconds.
+    pub duration_secs: f64,
+    /// Exit code of the process (0 = success).
+    pub exit_code: i32,
+    /// Human-readable status label (e.g., `"success"`, `"failure"`, `"timeout"`).
+    pub status: String,
+    /// Truncated stdout for prompt inclusion.
+    pub stdout_excerpt: String,
+    /// Truncated stderr for prompt inclusion.
+    pub stderr_excerpt: String,
+    /// Number of tokens consumed, if available.
+    pub tokens_used: Option<u64>,
+    /// Cost in USD, if available.
+    pub cost_usd: Option<f64>,
+}
+
+// ── Optimization Helpers ────────────────────────────────
+
+/// Character budgets for stdout/stderr truncation when building the optimization prompt.
+pub const STDOUT_HEAD_CHARS: usize = 1_500;
+/// Character budget for the tail of stdout (continuation after truncation marker).
+pub const STDOUT_TAIL_CHARS: usize = 1_000;
+/// Character budget for the head of stderr (error messages tend to be near the top).
+pub const STDERR_HEAD_CHARS: usize = 1_000;
+/// Character budget for the tail of stderr (exit reasons tend to appear at the end).
+pub const STDERR_TAIL_CHARS: usize = 1_500;
+
+/// Truncate a log excerpt for inclusion in the optimization prompt.
+///
+/// Uses asymmetric head/tail budgets: stdout is biased toward the head (first
+/// output matters most for correctness signals), while stderr is biased toward
+/// the tail (exit reasons and stack traces appear last).
+///
+/// # Examples
+///
+/// ```
+/// use lc_core::prompt::truncate_log_for_prompt;
+///
+/// let short = "hello world";
+/// assert_eq!(truncate_log_for_prompt(short, false), "hello world");
+/// assert_eq!(truncate_log_for_prompt(short, true), "hello world");
+/// ```
+pub fn truncate_log_for_prompt(text: &str, is_stderr: bool) -> String {
+    if is_stderr {
+        truncate_for_prompt(text, STDERR_HEAD_CHARS, STDERR_TAIL_CHARS)
+    } else {
+        truncate_for_prompt(text, STDOUT_HEAD_CHARS, STDOUT_TAIL_CHARS)
+    }
+}
+
+/// Truncate `text` to at most `head_chars + tail_chars` characters.
+///
+/// When the text is longer than the combined budget a mid-marker of the form
+/// `\n... [truncated N chars] ...\n` is inserted between the head and tail
+/// slices.  The function always splits on UTF-8 character boundaries.
+///
+/// # Examples
+///
+/// ```
+/// use lc_core::prompt::truncate_for_prompt;
+///
+/// // Budget exceeds length: text returned unchanged.
+/// let short = "hello world";
+/// assert_eq!(truncate_for_prompt(short, 6, 6), "hello world");
+///
+/// // Budget smaller than text: head + marker + tail.
+/// let long = "abcdefghij";
+/// let result = truncate_for_prompt(long, 3, 3);
+/// assert!(result.starts_with("abc"));
+/// assert!(result.ends_with("hij"));
+/// assert!(result.contains("truncated"));
+/// ```
+pub fn truncate_for_prompt(text: &str, head_chars: usize, tail_chars: usize) -> String {
+    let total_budget = head_chars + tail_chars;
+    let char_count = text.chars().count();
+
+    if char_count <= total_budget {
+        return text.to_string();
+    }
+
+    let truncated_count = char_count - total_budget;
+
+    // Collect head slice up to `head_chars` chars.
+    let head: String = text.chars().take(head_chars).collect();
+
+    // Collect tail slice — last `tail_chars` chars.
+    let tail: String = text
+        .chars()
+        .skip(char_count - tail_chars)
+        .collect();
+
+    format!("{head}\n... [truncated {truncated_count} chars] ...\n{tail}")
+}
+
+/// Format a single [`LogSummary`] entry as a human-readable block for the
+/// optimization prompt.
+///
+/// The format follows the SSD section 7.2 conventions:
+/// - Success runs show the `stdout_excerpt`.
+/// - Failure runs show `stderr_excerpt` first, then `stdout_excerpt`.
+/// - Timeout runs are annotated with a scope-reduction note.
+///
+/// # Examples
+///
+/// ```
+/// use lc_core::prompt::{LogSummary, format_log_for_prompt};
+///
+/// let log = LogSummary {
+///     run_index: 0,
+///     started_at: "2026-03-18T10:00:00Z".into(),
+///     duration_secs: 12.4,
+///     exit_code: 0,
+///     status: "success".into(),
+///     stdout_excerpt: "No issues found.".into(),
+///     stderr_excerpt: String::new(),
+///     tokens_used: None,
+///     cost_usd: Some(0.0031),
+/// };
+/// let formatted = format_log_for_prompt(&log);
+/// assert!(formatted.contains("SUCCESS"));
+/// assert!(formatted.contains("12.4s"));
+/// ```
+pub fn format_log_for_prompt(log: &LogSummary) -> String {
+    let status_upper = log.status.to_uppercase();
+    let cost_str = log
+        .cost_usd
+        .map(|c| format!("${c:.4}"))
+        .unwrap_or_else(|| "—".to_string());
+
+    let is_timeout = log.status.eq_ignore_ascii_case("timeout");
+    let is_success = log.exit_code == 0 && !is_timeout;
+
+    let header = if is_success {
+        format!(
+            "[RUN {:08}] {} | {} | {}s | {}",
+            log.run_index, log.started_at, status_upper, log.duration_secs, cost_str
+        )
+    } else {
+        format!(
+            "[RUN {:08}] {} | {} (exit {}) | {}s | {}",
+            log.run_index,
+            log.started_at,
+            status_upper,
+            log.exit_code,
+            log.duration_secs,
+            cost_str
+        )
+    };
+
+    let mut body = String::new();
+
+    if is_success {
+        if !log.stdout_excerpt.is_empty() {
+            body.push_str(&format!("stdout: {}\n", log.stdout_excerpt));
+        }
+    } else if is_timeout {
+        if !log.stdout_excerpt.is_empty() {
+            body.push_str(&format!("stdout (first chars): {}\n", log.stdout_excerpt));
+        }
+        body.push_str("note: Run was terminated before completion. Consider scope reduction.\n");
+    } else {
+        // Failure run: show stderr first, then stdout.
+        if !log.stderr_excerpt.is_empty() {
+            body.push_str(&format!("stderr: {}\n", log.stderr_excerpt));
+        }
+        if !log.stdout_excerpt.is_empty() {
+            body.push_str(&format!("stdout: {}\n", log.stdout_excerpt));
+        }
+    }
+
+    if body.is_empty() {
+        format!("{header}\n(no output captured)\n")
+    } else {
+        format!("{header}\n{body}")
+    }
+}
+
+/// Compute a pre-annotation block summarising patterns across all log entries.
+///
+/// The block is prepended to the execution history section so Claude can
+/// immediately see aggregate signals without re-deriving them.
+///
+/// # Examples
+///
+/// ```
+/// use lc_core::prompt::{LogSummary, compute_pattern_annotations};
+///
+/// let logs = vec![
+///     LogSummary {
+///         run_index: 0,
+///         started_at: "2026-03-18T10:00:00Z".into(),
+///         duration_secs: 10.0,
+///         exit_code: 0,
+///         status: "success".into(),
+///         stdout_excerpt: "ok".into(),
+///         stderr_excerpt: String::new(),
+///         tokens_used: Some(100),
+///         cost_usd: Some(0.001),
+///     },
+/// ];
+/// let annotations = compute_pattern_annotations(&logs);
+/// assert!(annotations.contains("Success rate"));
+/// ```
+pub fn compute_pattern_annotations(logs: &[LogSummary]) -> String {
+    if logs.is_empty() {
+        return "## Pre-Computed Patterns\n(no logs available)\n".to_string();
+    }
+
+    let total = logs.len();
+    let success_count = logs
+        .iter()
+        .filter(|l| l.exit_code == 0 && !l.status.eq_ignore_ascii_case("timeout"))
+        .count();
+    let failure_count = total - success_count;
+
+    let success_label = match (success_count as f64 / total as f64 * 100.0) as u32 {
+        90..=100 => "EXCELLENT",
+        70..=89 => "GOOD",
+        40..=69 => "MODERATE",
+        _ => "POOR",
+    };
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("## Pre-Computed Patterns".to_string());
+    lines.push(format!(
+        "- Success rate: {success_count}/{total} runs ({:.0}%) — {success_label}",
+        success_count as f64 / total as f64 * 100.0
+    ));
+
+    // Most common exit code on failure.
+    if failure_count > 0 {
+        let mut code_counts: std::collections::HashMap<i32, usize> =
+            std::collections::HashMap::new();
+        for log in logs.iter().filter(|l| l.exit_code != 0) {
+            *code_counts.entry(log.exit_code).or_insert(0) += 1;
+        }
+        if let Some((&code, &count)) = code_counts.iter().max_by_key(|(_, v)| *v) {
+            lines.push(format!(
+                "- Most common exit code on failure: {code} ({count} of {failure_count} failure runs)"
+            ));
+        }
+    }
+
+    // Cost stats.
+    let costs: Vec<f64> = logs.iter().filter_map(|l| l.cost_usd).collect();
+    if !costs.is_empty() {
+        let avg_cost = costs.iter().sum::<f64>() / costs.len() as f64;
+        let max_cost = costs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let max_run = logs
+            .iter()
+            .filter_map(|l| l.cost_usd.map(|c| (c, l.run_index)))
+            .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some((_, idx)) = max_run {
+            lines.push(format!(
+                "- Average cost: ${avg_cost:.4} | Highest: ${max_cost:.4} (RUN {:08})",
+                idx
+            ));
+        } else {
+            lines.push(format!(
+                "- Average cost: ${avg_cost:.4} | Highest: ${max_cost:.4}"
+            ));
+        }
+    }
+
+    // Duration stats.
+    let durations: Vec<f64> = logs.iter().map(|l| l.duration_secs).collect();
+    if !durations.is_empty() {
+        let avg_dur = durations.iter().sum::<f64>() / durations.len() as f64;
+        let long_runs = durations.iter().filter(|&&d| d > 50.0).count();
+        let mut dur_line = format!("- Average duration: {avg_dur:.1}s");
+        if long_runs > 0 {
+            dur_line.push_str(&format!(" | {long_runs} run(s) exceeded 50s"));
+        }
+        lines.push(dur_line);
+    }
+
+    // stdout length variance across success runs.
+    let stdout_lens: Vec<usize> = logs
+        .iter()
+        .filter(|l| l.exit_code == 0)
+        .map(|l| l.stdout_excerpt.len())
+        .collect();
+    if stdout_lens.len() >= 2 {
+        let min_len = stdout_lens.iter().min().copied().unwrap_or(0);
+        let max_len = stdout_lens.iter().max().copied().unwrap_or(0);
+        let variance_label = if max_len > min_len * 3 { "HIGH" } else { "LOW" };
+        lines.push(format!(
+            "- stdout length variance: {variance_label} (min {min_len} chars, max {max_len} chars across success runs)"
+        ));
+    }
+
+    lines.join("\n") + "\n"
+}
+
+/// Build the full optimization prompt by substituting all template variables.
+///
+/// `task_description` is used for the `{{TASK_DESCRIPTION}}` template variable.
+/// When empty, `task_name` is used as the fallback description.
+///
+/// `agents` is a slice of agent slug strings (e.g. `&["security-auditor"]`).
+/// When empty, the `{{AGENT_BLOCK}}` variable is replaced with a focus-only block.
+/// When non-empty, a formatted `## Tagged Agents` section is inserted.
+///
+/// The `focus` value is embedded as a hint in the `{{AGENT_BLOCK}}` section so
+/// Claude knows which category to prioritise.
+///
+/// # Examples
+///
+/// ```
+/// use lc_core::prompt::{LogSummary, OptimizationFocus, build_optimization_prompt};
+///
+/// let logs = vec![LogSummary {
+///     run_index: 0,
+///     started_at: "2026-03-18T10:00:00Z".into(),
+///     duration_secs: 5.0,
+///     exit_code: 0,
+///     status: "success".into(),
+///     stdout_excerpt: "done".into(),
+///     stderr_excerpt: String::new(),
+///     tokens_used: None,
+///     cost_usd: None,
+/// }];
+///
+/// let prompt = build_optimization_prompt(
+///     "my-task",
+///     "Analyzes the codebase for issues",
+///     "Review the codebase",
+///     &OptimizationFocus::All,
+///     &logs,
+///     &[],
+/// );
+/// assert!(prompt.contains("my-task"));
+/// assert!(prompt.contains("Analyzes the codebase for issues"));
+/// assert!(prompt.contains("Review the codebase"));
+/// assert!(!prompt.contains("{{TASK_NAME}}"));
+/// assert!(!prompt.contains("{{TASK_DESCRIPTION}}"));
+/// ```
+pub fn build_optimization_prompt(
+    task_name: &str,
+    task_description: &str,
+    original_command: &str,
+    focus: &OptimizationFocus,
+    logs: &[LogSummary],
+    agents: &[&str],
+) -> String {
+    // Fallback: when description is blank, display the task name instead.
+    let effective_description = if task_description.trim().is_empty() {
+        task_name
+    } else {
+        task_description
+    };
+
+    // Build agent block.
+    let agent_block = if agents.is_empty() {
+        String::new()
+    } else {
+        let agent_list = agents
+            .iter()
+            .map(|s| format!("- @{s}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("## Tagged Agents\n\nOptimization focus: {focus}\n\n{agent_list}\n")
+    };
+
+    // Build execution history section.
+    let pattern_annotations = compute_pattern_annotations(logs);
+    let log_entries: String = logs.iter().map(format_log_for_prompt).collect::<Vec<_>>().join("\n");
+    let execution_history = format!("{pattern_annotations}\n{log_entries}");
+
+    // If no agents, still embed focus hint.
+    let agent_block_final = if agent_block.is_empty() {
+        format!("## Optimization Focus\n\n{focus}\n")
+    } else {
+        agent_block
+    };
+
+    OPTIMIZATION_META_PROMPT
+        .replace("{{TASK_NAME}}", task_name)
+        .replace("{{TASK_DESCRIPTION}}", effective_description)
+        .replace("{{CURRENT_COMMAND}}", original_command)
+        .replace("{{EXECUTION_HISTORY}}", &execution_history)
+        .replace("{{AGENT_BLOCK}}", &agent_block_final)
+}
+
+/// The outcome of validating a prompt optimization result.
+///
+/// Combines the parsed [`OptimizationResult`] with any content-level warnings
+/// detected during validation.  Warnings do not fail validation but should be
+/// surfaced to callers for logging or inclusion in the RPC response.
+#[derive(Debug, Clone)]
+pub struct ValidationOutcome {
+    /// The successfully parsed and structurally valid optimization result.
+    pub result: OptimizationResult,
+    /// Zero or more content-level warning messages.
+    ///
+    /// Conditions that produce a warning (spec §7.4):
+    /// - `optimized_command` differs from the original yet `confidence_score` is 100.
+    /// - `optimized_command` is more than 3× the length of the original (scope expansion).
+    /// - `optimized_command` is less than 25% the length of the original (capability loss).
+    pub warnings: Vec<String>,
+}
+
+/// Parse and validate Claude's raw JSON output from a prompt optimization request.
+///
+/// Returns `Ok(ValidationOutcome)` if the output passes all structural checks.
+/// Returns `Err(String)` with a human-readable description of the first
+/// validation failure encountered.
+///
+/// Structural (hard) checks performed:
+/// - Output is valid JSON
+/// - `optimized_command` is non-empty
+/// - `confidence_score` is in [0, 100]
+/// - `optimization_categories` is non-empty
+/// - `changes_summary` is at least 20 characters
+///
+/// Content-level warnings (spec §7.4) are returned inside [`ValidationOutcome`]:
+/// - Command changed but `confidence_score` is 100
+/// - Optimized command > 3× original length (scope expansion)
+/// - Optimized command < 25% of original length (capability loss)
+///
+/// # Examples
+///
+/// ```
+/// use lc_core::prompt::validate_optimization_result;
+///
+/// let raw = r#"{
+///   "optimized_command": "claude -p 'do the thing efficiently'",
+///   "changes_summary": "Added efficiency constraints to reduce token usage.",
+///   "confidence_score": 75,
+///   "optimization_categories": ["efficiency"]
+/// }"#;
+///
+/// let outcome = validate_optimization_result(raw, "claude -p 'do the thing'").unwrap();
+/// assert_eq!(outcome.result.confidence_score, 75);
+/// assert!(outcome.warnings.is_empty());
+/// ```
+pub fn validate_optimization_result(
+    raw_output: &str,
+    original_command: &str,
+) -> Result<ValidationOutcome, String> {
+    // Strip any leading/trailing whitespace and optional markdown fences.
+    let trimmed = raw_output.trim();
+    let json_str = if trimmed.starts_with("```") {
+        // Strip ```json ... ``` fences.
+        trimmed
+            .lines()
+            .skip(1) // skip opening fence
+            .take_while(|l| !l.starts_with("```"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        trimmed.to_string()
+    };
+
+    let value: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Output is not valid JSON: {e}"))?;
+
+    // optimized_command
+    let optimized_command = value
+        .get("optimized_command")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing or non-string field: optimized_command")?
+        .to_string();
+    if optimized_command.trim().is_empty() {
+        return Err("optimized_command must not be empty".into());
+    }
+
+    // changes_summary
+    let changes_summary = value
+        .get("changes_summary")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing or non-string field: changes_summary")?
+        .to_string();
+    if changes_summary.len() < 20 {
+        return Err(format!(
+            "changes_summary is too short ({} chars); minimum 20 required",
+            changes_summary.len()
+        ));
+    }
+
+    // confidence_score — validate range [0, 100] before narrowing to u8.
+    let raw_score = value
+        .get("confidence_score")
+        .and_then(|v| v.as_u64())
+        .ok_or("Missing or non-integer field: confidence_score")?;
+    if raw_score > 100 {
+        return Err(format!(
+            "confidence_score {raw_score} is out of range; must be in [0, 100]"
+        ));
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let confidence_score = raw_score as u8;
+
+    // optimization_categories
+    let categories_raw = value
+        .get("optimization_categories")
+        .and_then(|v| v.as_array())
+        .ok_or("Missing or non-array field: optimization_categories")?;
+    if categories_raw.is_empty() {
+        return Err("optimization_categories must not be empty".into());
+    }
+    let optimization_categories: Vec<String> = categories_raw
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+    if optimization_categories.is_empty() {
+        return Err("optimization_categories must contain at least one string value".into());
+    }
+
+    let result = OptimizationResult {
+        optimized_command,
+        changes_summary,
+        confidence_score,
+        optimization_categories,
+    };
+
+    // ── Content-level warnings (spec §7.4) ──────────────────────────────────
+    let mut warnings: Vec<String> = Vec::new();
+
+    let orig_len = original_command.len();
+    let opt_len = result.optimized_command.len();
+    let command_changed = result.optimized_command != original_command;
+
+    if command_changed && confidence_score == 100 {
+        warnings.push(
+            "confidence_score is 100 but the command was changed; \
+             a perfect confidence score is unlikely when modifications are made"
+                .to_string(),
+        );
+    }
+
+    if orig_len > 0 && opt_len > orig_len * 3 {
+        warnings.push(format!(
+            "optimized_command ({opt_len} chars) is more than 3× the original \
+             ({orig_len} chars); review for unintended scope expansion"
+        ));
+    }
+
+    if orig_len > 0 && opt_len * 4 < orig_len {
+        warnings.push(format!(
+            "optimized_command ({opt_len} chars) is less than 25% of the original \
+             ({orig_len} chars); review for unintended capability loss"
+        ));
+    }
+
+    Ok(ValidationOutcome { result, warnings })
+}
+
 // ── Tests ───────────────────────────────────────────────
 
 #[cfg(test)]
@@ -803,5 +1431,390 @@ A Markdown report listing all findings.
             registry.lookup_agents(&["security-auditor".to_string(), "nonexistent".to_string()]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].slug, "security-auditor");
+    }
+
+    // ── Optimization Helpers ─────────────────────────────
+
+    fn make_log(run_index: u32, exit_code: i32, status: &str, cost: Option<f64>) -> LogSummary {
+        LogSummary {
+            run_index,
+            started_at: "2026-03-18T10:00:00Z".into(),
+            duration_secs: 12.0,
+            exit_code,
+            status: status.into(),
+            stdout_excerpt: "some output text".into(),
+            stderr_excerpt: if exit_code != 0 {
+                "error: something went wrong".into()
+            } else {
+                String::new()
+            },
+            tokens_used: Some(500),
+            cost_usd: cost,
+        }
+    }
+
+    #[test]
+    fn truncate_short_text_unchanged() {
+        let text = "hello world";
+        assert_eq!(truncate_for_prompt(text, 20, 20), "hello world");
+    }
+
+    #[test]
+    fn truncate_long_text_inserts_marker() {
+        // 10 chars total; head=3, tail=3 → should truncate 4 chars in the middle
+        let text = "abcdefghij";
+        let result = truncate_for_prompt(text, 3, 3);
+        assert!(result.starts_with("abc"), "got: {result}");
+        assert!(result.ends_with("hij"), "got: {result}");
+        assert!(result.contains("truncated 4 chars"), "got: {result}");
+    }
+
+    #[test]
+    fn truncate_exact_budget_unchanged() {
+        let text = "abcdef";
+        // head=3 + tail=3 = 6 == len → no truncation needed
+        assert_eq!(truncate_for_prompt(text, 3, 3), "abcdef");
+    }
+
+    // ── truncate_log_for_prompt ──────────────────────────
+
+    #[test]
+    fn truncate_log_for_prompt_short_stdout_unchanged() {
+        let text = "short output";
+        // Well under the stdout budget of 1500+1000 = 2500 chars.
+        assert_eq!(truncate_log_for_prompt(text, false), "short output");
+    }
+
+    #[test]
+    fn truncate_log_for_prompt_short_stderr_unchanged() {
+        let text = "error: file not found";
+        // Well under the stderr budget of 1000+1500 = 2500 chars.
+        assert_eq!(truncate_log_for_prompt(text, true), "error: file not found");
+    }
+
+    #[test]
+    fn truncate_log_for_prompt_long_stdout_uses_head_bias() {
+        // Stdout should use STDOUT_HEAD_CHARS (1500) + STDOUT_TAIL_CHARS (1000).
+        // Create text that exceeds the total budget.
+        let text: String = "A".repeat(STDOUT_HEAD_CHARS + STDOUT_TAIL_CHARS + 200);
+        let result = truncate_log_for_prompt(&text, false);
+        // Head must be exactly STDOUT_HEAD_CHARS 'A's.
+        let head: String = result.chars().take(STDOUT_HEAD_CHARS).collect();
+        assert_eq!(head, "A".repeat(STDOUT_HEAD_CHARS), "stdout head size mismatch");
+        assert!(result.contains("truncated 200 chars"), "marker missing; got: {result}");
+    }
+
+    #[test]
+    fn truncate_log_for_prompt_long_stderr_uses_tail_bias() {
+        // Stderr should use STDERR_HEAD_CHARS (1000) + STDERR_TAIL_CHARS (1500).
+        let text: String = "B".repeat(STDERR_HEAD_CHARS + STDERR_TAIL_CHARS + 300);
+        let result = truncate_log_for_prompt(&text, true);
+        // Head must be exactly STDERR_HEAD_CHARS 'B's.
+        let head: String = result.chars().take(STDERR_HEAD_CHARS).collect();
+        assert_eq!(head, "B".repeat(STDERR_HEAD_CHARS), "stderr head size mismatch");
+        assert!(result.contains("truncated 300 chars"), "marker missing; got: {result}");
+    }
+
+    #[test]
+    fn format_log_success_contains_header_fields() {
+        let log = make_log(0, 0, "success", Some(0.0031));
+        let formatted = format_log_for_prompt(&log);
+        assert!(formatted.contains("SUCCESS"), "got: {formatted}");
+        assert!(formatted.contains("12"), "got: {formatted}");
+        assert!(formatted.contains("$0.0031"), "got: {formatted}");
+        assert!(!formatted.contains("exit"), "success run should not show exit code");
+    }
+
+    #[test]
+    fn format_log_failure_shows_exit_code_and_stderr() {
+        let log = make_log(1, 1, "failure", None);
+        let formatted = format_log_for_prompt(&log);
+        assert!(formatted.contains("FAILURE"), "got: {formatted}");
+        assert!(formatted.contains("exit 1"), "got: {formatted}");
+        assert!(formatted.contains("error: something went wrong"), "got: {formatted}");
+    }
+
+    #[test]
+    fn format_log_timeout_adds_note() {
+        let mut log = make_log(2, 1, "timeout", None);
+        log.exit_code = 1;
+        log.status = "timeout".into();
+        let formatted = format_log_for_prompt(&log);
+        assert!(formatted.contains("TIMEOUT"), "got: {formatted}");
+        assert!(
+            formatted.contains("scope reduction"),
+            "got: {formatted}"
+        );
+    }
+
+    #[test]
+    fn compute_pattern_annotations_empty() {
+        let annotations = compute_pattern_annotations(&[]);
+        assert!(annotations.contains("no logs available"));
+    }
+
+    #[test]
+    fn compute_pattern_annotations_all_success() {
+        let logs = vec![
+            make_log(0, 0, "success", Some(0.001)),
+            make_log(1, 0, "success", Some(0.002)),
+        ];
+        let annotations = compute_pattern_annotations(&logs);
+        assert!(annotations.contains("2/2 runs"), "got: {annotations}");
+        assert!(annotations.contains("EXCELLENT"), "got: {annotations}");
+    }
+
+    #[test]
+    fn compute_pattern_annotations_mixed() {
+        let logs = vec![
+            make_log(0, 0, "success", Some(0.001)),
+            make_log(1, 1, "failure", Some(0.002)),
+            make_log(2, 1, "failure", Some(0.003)),
+        ];
+        let annotations = compute_pattern_annotations(&logs);
+        assert!(annotations.contains("1/3 runs"), "got: {annotations}");
+        assert!(annotations.contains("Average cost"), "got: {annotations}");
+    }
+
+    #[test]
+    fn build_optimization_prompt_substitutes_all_variables() {
+        let logs = vec![make_log(0, 0, "success", Some(0.001))];
+        let prompt = build_optimization_prompt(
+            "test-task",
+            "Runs stuff efficiently",
+            "claude -p 'do stuff'",
+            &OptimizationFocus::Efficiency,
+            &logs,
+            &[],
+        );
+        assert!(!prompt.contains("{{TASK_NAME}}"), "unresolved TASK_NAME");
+        assert!(!prompt.contains("{{TASK_DESCRIPTION}}"), "unresolved TASK_DESCRIPTION");
+        assert!(!prompt.contains("{{CURRENT_COMMAND}}"), "unresolved CURRENT_COMMAND");
+        assert!(!prompt.contains("{{EXECUTION_HISTORY}}"), "unresolved EXECUTION_HISTORY");
+        assert!(!prompt.contains("{{AGENT_BLOCK}}"), "unresolved AGENT_BLOCK");
+        assert!(prompt.contains("test-task"), "task name missing");
+        assert!(prompt.contains("Runs stuff efficiently"), "task description missing");
+        assert!(prompt.contains("claude -p 'do stuff'"), "command missing");
+    }
+
+    #[test]
+    fn build_optimization_prompt_description_fallback() {
+        // When task_description is empty, task_name is used as the description.
+        let logs = vec![make_log(0, 0, "success", None)];
+        let prompt = build_optimization_prompt(
+            "my-task",
+            "",
+            "run it",
+            &OptimizationFocus::All,
+            &logs,
+            &[],
+        );
+        // The task name should appear twice: once in TASK_NAME and once as TASK_DESCRIPTION.
+        let occurrences = prompt.matches("my-task").count();
+        assert!(occurrences >= 2, "expected task name used as description fallback; got occurrences={occurrences}");
+        assert!(!prompt.contains("{{TASK_DESCRIPTION}}"), "unresolved TASK_DESCRIPTION");
+    }
+
+    #[test]
+    fn build_optimization_prompt_includes_agents() {
+        let logs = vec![make_log(0, 0, "success", None)];
+        let prompt = build_optimization_prompt(
+            "review-task",
+            "Reviews code quality",
+            "review code",
+            &OptimizationFocus::Quality,
+            &logs,
+            &["security-auditor", "code-reviewer"],
+        );
+        assert!(prompt.contains("@security-auditor"), "got: {prompt}");
+        assert!(prompt.contains("@code-reviewer"), "got: {prompt}");
+    }
+
+    #[test]
+    fn validate_optimization_result_valid_json() {
+        let raw = r#"{
+          "optimized_command": "claude -p 'do the thing efficiently'",
+          "changes_summary": "Added efficiency constraints to reduce token usage significantly.",
+          "confidence_score": 75,
+          "optimization_categories": ["efficiency"]
+        }"#;
+        let outcome = validate_optimization_result(raw, "claude -p 'do the thing'");
+        assert!(outcome.is_ok(), "got error: {:?}", outcome.err());
+        let o = outcome.unwrap();
+        assert_eq!(o.result.confidence_score, 75);
+        assert_eq!(o.result.optimization_categories, vec!["efficiency"]);
+    }
+
+    #[test]
+    fn validate_optimization_result_strips_markdown_fence() {
+        let raw = "```json\n{\
+            \"optimized_command\": \"run it better\",\
+            \"changes_summary\": \"This is a sufficient summary of changes made to the prompt.\",\
+            \"confidence_score\": 80,\
+            \"optimization_categories\": [\"quality\"]\
+        }\n```";
+        let outcome = validate_optimization_result(raw, "run it");
+        assert!(outcome.is_ok(), "got error: {:?}", outcome.err());
+    }
+
+    #[test]
+    fn validate_optimization_result_rejects_empty_command() {
+        let raw = r#"{
+          "optimized_command": "",
+          "changes_summary": "This has enough characters to pass the summary length check.",
+          "confidence_score": 50,
+          "optimization_categories": ["efficiency"]
+        }"#;
+        let err = validate_optimization_result(raw, "original").unwrap_err();
+        assert!(err.contains("optimized_command"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_optimization_result_rejects_short_summary() {
+        let raw = r#"{
+          "optimized_command": "something valid here",
+          "changes_summary": "Too short.",
+          "confidence_score": 60,
+          "optimization_categories": ["quality"]
+        }"#;
+        let err = validate_optimization_result(raw, "original").unwrap_err();
+        assert!(err.contains("changes_summary"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_optimization_result_rejects_empty_categories() {
+        let raw = r#"{
+          "optimized_command": "something valid here",
+          "changes_summary": "This is a long enough summary to pass the minimum length check.",
+          "confidence_score": 60,
+          "optimization_categories": []
+        }"#;
+        let err = validate_optimization_result(raw, "original").unwrap_err();
+        assert!(err.contains("optimization_categories"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_optimization_result_rejects_non_json() {
+        let raw = "This is not JSON at all.";
+        let err = validate_optimization_result(raw, "original").unwrap_err();
+        assert!(err.contains("not valid JSON"), "got: {err}");
+    }
+
+    // ── GAP-01: confidence_score bounds check ────────────────────────────────
+
+    #[test]
+    fn validate_optimization_result_rejects_score_above_100() {
+        let raw = r#"{
+          "optimized_command": "claude -p 'do the thing efficiently'",
+          "changes_summary": "Added efficiency constraints to reduce token usage significantly.",
+          "confidence_score": 101,
+          "optimization_categories": ["efficiency"]
+        }"#;
+        let err = validate_optimization_result(raw, "claude -p 'do the thing'").unwrap_err();
+        assert!(
+            err.contains("confidence_score") && err.contains("out of range"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_optimization_result_accepts_score_100() {
+        let raw = r#"{
+          "optimized_command": "claude -p 'do the thing'",
+          "changes_summary": "No changes were necessary; the command is already optimal.",
+          "confidence_score": 100,
+          "optimization_categories": ["efficiency"]
+        }"#;
+        // Same command → no "changed but score 100" warning.
+        let outcome = validate_optimization_result(raw, "claude -p 'do the thing'").unwrap();
+        assert_eq!(outcome.result.confidence_score, 100);
+        assert!(outcome.warnings.is_empty(), "unexpected warnings: {:?}", outcome.warnings);
+    }
+
+    #[test]
+    fn validate_optimization_result_accepts_score_0() {
+        let raw = r#"{
+          "optimized_command": "claude -p 'do the thing'",
+          "changes_summary": "No changes were made due to lack of data for analysis.",
+          "confidence_score": 0,
+          "optimization_categories": ["efficiency"]
+        }"#;
+        let outcome = validate_optimization_result(raw, "claude -p 'do the thing'").unwrap();
+        assert_eq!(outcome.result.confidence_score, 0);
+    }
+
+    // ── GAP-02: content-level regression warnings ────────────────────────────
+
+    #[test]
+    fn validate_optimization_result_warns_changed_command_with_score_100() {
+        let raw = r#"{
+          "optimized_command": "claude -p 'do something completely different'",
+          "changes_summary": "Rewrote the command for better efficiency and reliability.",
+          "confidence_score": 100,
+          "optimization_categories": ["efficiency"]
+        }"#;
+        let outcome =
+            validate_optimization_result(raw, "claude -p 'original command'").unwrap();
+        assert!(
+            outcome.warnings.iter().any(|w| w.contains("confidence_score is 100")),
+            "expected 'changed but score 100' warning; got: {:?}",
+            outcome.warnings
+        );
+    }
+
+    #[test]
+    fn validate_optimization_result_warns_scope_expansion() {
+        // Build an optimized command that is more than 3× the original length.
+        let original = "short";
+        let expanded = "A".repeat(original.len() * 4); // 4× — exceeds threshold
+        let raw = serde_json::json!({
+            "optimized_command": expanded,
+            "changes_summary": "Expanded the command significantly to cover all edge cases and scenarios.",
+            "confidence_score": 70,
+            "optimization_categories": ["quality"]
+        })
+        .to_string();
+        let outcome = validate_optimization_result(&raw, original).unwrap();
+        assert!(
+            outcome.warnings.iter().any(|w| w.contains("scope expansion")),
+            "expected scope expansion warning; got: {:?}",
+            outcome.warnings
+        );
+    }
+
+    #[test]
+    fn validate_optimization_result_warns_capability_loss() {
+        // Build an optimized command that is less than 25% of the original length.
+        let original = "A".repeat(100);
+        let shrunk = "x"; // 1% of original
+        let raw = serde_json::json!({
+            "optimized_command": shrunk,
+            "changes_summary": "Drastically reduced the command to eliminate redundancy and verbosity.",
+            "confidence_score": 60,
+            "optimization_categories": ["efficiency"]
+        })
+        .to_string();
+        let outcome = validate_optimization_result(&raw, &original).unwrap();
+        assert!(
+            outcome.warnings.iter().any(|w| w.contains("capability loss")),
+            "expected capability loss warning; got: {:?}",
+            outcome.warnings
+        );
+    }
+
+    #[test]
+    fn validate_optimization_result_no_warnings_for_normal_change() {
+        // A modest change at confidence 75 should produce no warnings.
+        let original = "claude -p 'review the code'";
+        let optimized = "claude -p 'review the code carefully for security issues'";
+        let raw = serde_json::json!({
+            "optimized_command": optimized,
+            "changes_summary": "Added specificity to focus the review on security concerns.",
+            "confidence_score": 75,
+            "optimization_categories": ["quality"]
+        })
+        .to_string();
+        let outcome = validate_optimization_result(&raw, original).unwrap();
+        assert!(outcome.warnings.is_empty(), "unexpected warnings: {:?}", outcome.warnings);
     }
 }

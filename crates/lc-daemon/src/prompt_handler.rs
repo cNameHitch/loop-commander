@@ -7,9 +7,11 @@
 
 use lc_config::RegistryManager;
 use lc_core::prompt::{
-    build_meta_prompt, build_retry_meta_prompt, validate_generated_prompt, ParsedPrompt,
+    build_meta_prompt, build_optimization_prompt, build_retry_meta_prompt,
+    truncate_log_for_prompt, validate_generated_prompt, validate_optimization_result, LogSummary,
+    OptimizationFocus, ParsedPrompt, ValidationOutcome,
 };
-use lc_core::{rpc_errors, JsonRpcResponse, TaskId};
+use lc_core::{rpc_errors, JsonRpcResponse, LogQuery, TaskId};
 use serde::Deserialize;
 use tracing::{debug, error, info, warn};
 
@@ -247,6 +249,320 @@ pub async fn handle_registry_list(id: serde_json::Value, state: &SharedState) ->
     }
 }
 
+// ── prompt.optimize ─────────────────────────────────────
+
+/// Maximum total prompt character budget before log count is halved.
+const MAX_PROMPT_CHARS: usize = 80_000;
+
+#[derive(Debug, Deserialize)]
+struct OptimizeParams {
+    task_id: String,
+    #[serde(default)]
+    max_logs: Option<u32>,
+    #[serde(default)]
+    focus: Option<String>,
+    #[serde(default)]
+    feedback: Option<String>,
+}
+
+/// Handle `prompt.optimize` JSON-RPC requests.
+///
+/// 1. Parse params; clamp `max_logs` to [1, 50] with default 10.
+/// 2. Look up the task via the config manager — return `-32602` if not found.
+/// 3. Query execution logs — return `-32602` if none exist.
+/// 4. Truncate stdout/stderr per log (stdout: 1 500 head + 1 000 tail chars;
+///    stderr: 1 000 head + 1 500 tail chars, weighted for exit-reason visibility).
+/// 5. Convert to `LogSummary` vec, prioritising failed runs first.
+/// 6. Compute pattern annotations and build the optimization prompt.
+/// 7. Invoke Claude via the existing `invoke_claude` helper.
+/// 8. Validate the JSON response.  On failure, retry once with the error appended.
+/// 9. Return the optimized result as a JSON-RPC success response.
+pub async fn handle_prompt_optimize(
+    id: serde_json::Value,
+    params: serde_json::Value,
+    state: &SharedState,
+) -> JsonRpcResponse {
+    // 1. Parse and validate params.
+    let input: OptimizeParams = match serde_json::from_value(params) {
+        Ok(p) => p,
+        Err(e) => {
+            return JsonRpcResponse::error(id, -32602, format!("Invalid params: {e}"));
+        }
+    };
+
+    let max_logs = input
+        .max_logs
+        .map(|n| n.clamp(1, 50))
+        .unwrap_or(10) as usize;
+
+    let focus: OptimizationFocus = match input.focus.as_deref() {
+        Some("efficiency") => OptimizationFocus::Efficiency,
+        Some("quality") => OptimizationFocus::Quality,
+        Some("consistency") => OptimizationFocus::Consistency,
+        Some("resilience") => OptimizationFocus::Resilience,
+        Some("all") | None => OptimizationFocus::All,
+        Some(other) => {
+            return JsonRpcResponse::error(
+                id,
+                -32602,
+                format!(
+                    "Invalid focus '{other}': must be one of efficiency, quality, consistency, resilience, all"
+                ),
+            );
+        }
+    };
+
+    // 2. Look up the task.
+    let task = {
+        let cfg = state.config.lock().await;
+        match cfg.get_task(&input.task_id) {
+            Ok(t) => t,
+            Err(lc_core::LcError::TaskNotFound(_)) => {
+                return JsonRpcResponse::error(
+                    id,
+                    -32602,
+                    format!("Task not found: {}", input.task_id),
+                );
+            }
+            Err(e) => {
+                return JsonRpcResponse::error(id, -32603, format!("Config error: {e}"));
+            }
+        }
+    };
+
+    let original_command = task.command.clone();
+    let task_name = task.name.clone();
+
+    // 3. Query logs ordered newest-first; we'll reorder after selection.
+    let raw_logs = {
+        let logger = state.logger.lock().await;
+        let query = LogQuery {
+            task_id: Some(input.task_id.clone()),
+            limit: Some(50), // fetch the max so we can apply priority selection
+            ..Default::default()
+        };
+        match logger.query_logs(&query) {
+            Ok(logs) => logs,
+            Err(e) => {
+                return JsonRpcResponse::error(id, -32603, format!("Log query failed: {e}"));
+            }
+        }
+    };
+
+    if raw_logs.is_empty() {
+        return JsonRpcResponse::error(
+            id,
+            -32602,
+            "No execution history found for this task. Run the task at least once before optimizing.".into(),
+        );
+    }
+
+    // 4. Apply stdout/stderr truncation per log.
+    //
+    // 5. Prioritise: failed runs first, then most recent success, then remaining.
+    let (failures, successes): (Vec<_>, Vec<_>) = raw_logs
+        .into_iter()
+        .partition(|l| l.exit_code != 0 || l.status.to_string().eq_ignore_ascii_case("timeout"));
+
+    let mut selected = failures;
+    selected.extend(successes);
+    selected.truncate(max_logs);
+
+    // Reverse to chronological order (oldest first) so the prompt reads naturally.
+    selected.reverse();
+
+    let log_summaries: Vec<LogSummary> = selected
+        .iter()
+        .enumerate()
+        .map(|(i, log)| {
+            let stdout_excerpt = truncate_log_for_prompt(&log.stdout, false);
+            let stderr_excerpt = truncate_log_for_prompt(&log.stderr, true);
+
+            LogSummary {
+                run_index: i as u32,
+                started_at: log.started_at.to_rfc3339(),
+                duration_secs: log.duration_secs as f64,
+                exit_code: log.exit_code,
+                status: log.status.to_string(),
+                stdout_excerpt,
+                stderr_excerpt,
+                tokens_used: log.tokens_used,
+                cost_usd: log.cost_usd,
+            }
+        })
+        .collect();
+
+    let logs_analyzed = log_summaries.len();
+
+    // 6. Build the optimization prompt, optionally appending user feedback.
+    // Task has no description field; pass empty string to fall back to task_name.
+    let mut optimization_prompt = build_optimization_prompt(
+        &task_name,
+        "",
+        &original_command,
+        &focus,
+        &log_summaries,
+        &[], // no agent slugs at this stage — could be extended later
+    );
+
+    if let Some(ref feedback) = input.feedback {
+        if !feedback.trim().is_empty() {
+            optimization_prompt.push_str(&format!(
+                "\n\n## User Feedback\n\nPlease incorporate the following feedback:\n{feedback}\n"
+            ));
+        }
+    }
+
+    // Shrink log count iteratively if the prompt exceeds the character budget.
+    if optimization_prompt.len() > MAX_PROMPT_CHARS {
+        warn!(
+            task_id = %input.task_id,
+            prompt_len = optimization_prompt.len(),
+            "Optimization prompt exceeds budget; halving log count"
+        );
+        let reduced_logs = reduce_logs_to_budget(
+            &log_summaries,
+            &task_name,
+            "",
+            &original_command,
+            &focus,
+            &[],
+            MAX_PROMPT_CHARS,
+        );
+        optimization_prompt = build_optimization_prompt(
+            &task_name,
+            "",
+            &original_command,
+            &focus,
+            &reduced_logs,
+            &[],
+        );
+    }
+
+    // 7. Invoke Claude.
+    let raw_output = match invoke_claude(&optimization_prompt).await {
+        Ok(output) => output,
+        Err(e) => {
+            error!(task_id = %input.task_id, "Claude invocation failed for optimize: {e}");
+            return JsonRpcResponse::error(id, -32603, format!("Claude invocation failed: {e}"));
+        }
+    };
+
+    // 8. Validate; retry once with error appended on failure.
+    let ValidationOutcome { result, warnings } =
+        match validate_optimization_result(&raw_output, &original_command) {
+            Ok(outcome) => outcome,
+            Err(validation_err) => {
+                debug!(
+                    error = %validation_err,
+                    "Optimization validation failed, retrying with error feedback"
+                );
+
+                let retry_prompt = format!(
+                    "{optimization_prompt}\n\nIMPORTANT: Your previous response failed validation: {validation_err}\nPlease correct this and return valid JSON only."
+                );
+
+                let retry_output = match invoke_claude(&retry_prompt).await {
+                    Ok(output) => output,
+                    Err(e) => {
+                        return JsonRpcResponse::error(
+                            id,
+                            -32603,
+                            format!("Claude retry failed: {e}"),
+                        );
+                    }
+                };
+
+                match validate_optimization_result(&retry_output, &original_command) {
+                    Ok(outcome) => outcome,
+                    Err(retry_err) => {
+                        return JsonRpcResponse::error(
+                            id,
+                            -32603,
+                            format!("Optimization failed validation after retry: {retry_err}"),
+                        );
+                    }
+                }
+            }
+        };
+
+    for warning in &warnings {
+        warn!(task_id = %input.task_id, "Optimization warning: {warning}");
+    }
+
+    info!(
+        task_id = %input.task_id,
+        confidence = result.confidence_score,
+        logs_analyzed,
+        "Prompt optimization completed"
+    );
+
+    // 9. Return result.
+    let response = serde_json::json!({
+        "task_id": input.task_id,
+        "original_command": original_command,
+        "optimized_command": result.optimized_command,
+        "changes_summary": result.changes_summary,
+        "confidence_score": result.confidence_score,
+        "optimization_categories": result.optimization_categories,
+        "logs_analyzed": logs_analyzed,
+        "warnings": warnings,
+    });
+
+    JsonRpcResponse::success(id, response)
+}
+
+// ── Budget Reduction ─────────────────────────────────────
+
+/// Reduce the log list to fit within the prompt budget.
+///
+/// Builds the optimization prompt with the current log slice and, if it
+/// exceeds `max_chars`, halves the slice (keeping the most-recent half) and
+/// returns that subset.  The function guarantees at least one log entry is
+/// always returned so the caller always has something to work with.
+///
+/// # Arguments
+///
+/// * `logs` – Full ordered log slice (oldest → newest).
+/// * `task_name` – Task name forwarded to the prompt builder.
+/// * `task_description` – Task description forwarded to the prompt builder.
+/// * `original_command` – The current command text.
+/// * `focus` – Which optimization aspect to emphasise.
+/// * `agents` – Agent slugs for the prompt.
+/// * `max_chars` – Character budget (exclusive upper bound).
+///
+/// # Returns
+///
+/// The subset of `logs` that fits within the budget (or the minimum of one
+/// log when even a single entry exceeds the budget).
+fn reduce_logs_to_budget(
+    logs: &[LogSummary],
+    task_name: &str,
+    task_description: &str,
+    original_command: &str,
+    focus: &OptimizationFocus,
+    agents: &[&str],
+    max_chars: usize,
+) -> Vec<LogSummary> {
+    let mut current = logs.to_vec();
+    loop {
+        let prompt = build_optimization_prompt(
+            task_name,
+            task_description,
+            original_command,
+            focus,
+            &current,
+            agents,
+        );
+        if prompt.len() <= max_chars || current.len() <= 1 {
+            return current;
+        }
+        let half = (current.len() / 2).max(1);
+        // Keep the most-recent half (tail of the slice).
+        current = current[current.len() - half..].to_vec();
+    }
+}
+
 // ── Claude Invocation ───────────────────────────────────
 
 /// Invoke `claude -p` with the meta-prompt and extract the generated content.
@@ -295,6 +611,86 @@ async fn invoke_claude(prompt: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lc_core::prompt::LogSummary;
+
+    /// Build a minimal [`LogSummary`] for use in tests.
+    fn make_log(run_index: u32) -> LogSummary {
+        LogSummary {
+            run_index,
+            started_at: "2026-03-18T10:00:00Z".into(),
+            duration_secs: 5.0,
+            exit_code: 0,
+            status: "success".into(),
+            // Long enough that many logs together exceed realistic budgets.
+            stdout_excerpt: "x".repeat(5_000),
+            stderr_excerpt: String::new(),
+            tokens_used: None,
+            cost_usd: None,
+        }
+    }
+
+    // ── GAP-03: reduce_logs_to_budget ────────────────────────────────────────
+
+    #[test]
+    fn reduce_logs_to_budget_returns_all_when_within_budget() {
+        // Use a very large budget so nothing should be trimmed.
+        let logs: Vec<LogSummary> = (0..5).map(make_log).collect();
+        let result = reduce_logs_to_budget(
+            &logs,
+            "test-task",
+            "",
+            "claude -p 'run it'",
+            &OptimizationFocus::All,
+            &[],
+            usize::MAX,
+        );
+        assert_eq!(result.len(), 5, "all logs should be returned when within budget");
+    }
+
+    #[test]
+    fn reduce_logs_to_budget_halves_when_over_budget() {
+        // Use a budget of 0 so any prompt will exceed it, forcing at least one halving.
+        // With 10 logs and a budget of 0 the function should converge to 1 log.
+        let logs: Vec<LogSummary> = (0..10).map(make_log).collect();
+        let result = reduce_logs_to_budget(
+            &logs,
+            "test-task",
+            "",
+            "claude -p 'run it'",
+            &OptimizationFocus::All,
+            &[],
+            0,
+        );
+        // Must be at least 1 (the guaranteed minimum) and strictly fewer than input.
+        assert!(
+            result.len() < logs.len(),
+            "log count should have been reduced; got {}",
+            result.len()
+        );
+        assert!(result.len() >= 1, "at least one log must always be returned");
+    }
+
+    #[test]
+    fn reduce_logs_to_budget_keeps_most_recent() {
+        // With budget=0 and 4 logs labelled 0..3, the function should converge to
+        // the single most-recent log (index 3, which is the last in the slice).
+        let logs: Vec<LogSummary> = (0..4).map(make_log).collect();
+        let result = reduce_logs_to_budget(
+            &logs,
+            "test-task",
+            "",
+            "run it",
+            &OptimizationFocus::All,
+            &[],
+            0,
+        );
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].run_index, 3,
+            "should keep the most-recent (last) log; got index {}",
+            result[0].run_index
+        );
+    }
 
     #[test]
     fn parse_generate_params() {

@@ -60,6 +60,9 @@ class EditorViewModel: ObservableObject {
     /// Child view model for AI prompt generation.
     @Published var promptGeneratorVM = PromptGeneratorViewModel()
 
+    /// Child view model for AI prompt optimization.
+    @Published var promptOptimizerVM = PromptOptimizerViewModel()
+
     // MARK: - Internal State
 
     /// Snapshot of the draft as it existed when editing began; used for dirty
@@ -101,6 +104,7 @@ class EditorViewModel: ObservableObject {
     func setClient(_ client: DaemonClient) {
         self.client = client
         promptGeneratorVM.setClient(client)
+        promptOptimizerVM.setClient(client)
     }
 
     // MARK: - Lifecycle
@@ -130,6 +134,7 @@ class EditorViewModel: ObservableObject {
         error = nil
         validationErrors = []
         inferPresetFromCron(draft.schedule)
+        Task { await promptOptimizerVM.loadLogs(taskId: task.id) }
     }
 
     /// Pre-populate a new-task draft from a discovered Claude Code command.
@@ -218,8 +223,14 @@ class EditorViewModel: ObservableObject {
         showDiscardAlert = true
     }
 
+    /// Apply the optimizer's result to the draft command.
+    func applyOptimization() {
+        promptOptimizerVM.applyOptimization(to: &draft)
+    }
+
     /// Perform the actual discard action – called when the user confirms the alert.
     func discard() {
+        promptOptimizerVM.reset()
         showDiscardAlert = false
         switch editorState {
         case .empty:
