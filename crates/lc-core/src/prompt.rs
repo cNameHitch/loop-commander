@@ -640,10 +640,7 @@ pub fn truncate_for_prompt(text: &str, head_chars: usize, tail_chars: usize) -> 
     let head: String = text.chars().take(head_chars).collect();
 
     // Collect tail slice — last `tail_chars` chars.
-    let tail: String = text
-        .chars()
-        .skip(char_count - tail_chars)
-        .collect();
+    let tail: String = text.chars().skip(char_count - tail_chars).collect();
 
     format!("{head}\n... [truncated {truncated_count} chars] ...\n{tail}")
 }
@@ -694,12 +691,7 @@ pub fn format_log_for_prompt(log: &LogSummary) -> String {
     } else {
         format!(
             "[RUN {:08}] {} | {} (exit {}) | {}s | {}",
-            log.run_index,
-            log.started_at,
-            status_upper,
-            log.exit_code,
-            log.duration_secs,
-            cost_str
+            log.run_index, log.started_at, status_upper, log.exit_code, log.duration_secs, cost_str
         )
     };
 
@@ -920,7 +912,11 @@ pub fn build_optimization_prompt(
 
     // Build execution history section.
     let pattern_annotations = compute_pattern_annotations(logs);
-    let log_entries: String = logs.iter().map(format_log_for_prompt).collect::<Vec<_>>().join("\n");
+    let log_entries: String = logs
+        .iter()
+        .map(format_log_for_prompt)
+        .collect::<Vec<_>>()
+        .join("\n");
     let execution_history = format!("{pattern_annotations}\n{log_entries}");
 
     // If no agents, still embed focus hint.
@@ -1008,8 +1004,8 @@ pub fn validate_optimization_result(
         trimmed.to_string()
     };
 
-    let value: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Output is not valid JSON: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_str(&json_str).map_err(|e| format!("Output is not valid JSON: {e}"))?;
 
     // optimized_command
     let optimized_command = value
@@ -1500,8 +1496,15 @@ A Markdown report listing all findings.
         let result = truncate_log_for_prompt(&text, false);
         // Head must be exactly STDOUT_HEAD_CHARS 'A's.
         let head: String = result.chars().take(STDOUT_HEAD_CHARS).collect();
-        assert_eq!(head, "A".repeat(STDOUT_HEAD_CHARS), "stdout head size mismatch");
-        assert!(result.contains("truncated 200 chars"), "marker missing; got: {result}");
+        assert_eq!(
+            head,
+            "A".repeat(STDOUT_HEAD_CHARS),
+            "stdout head size mismatch"
+        );
+        assert!(
+            result.contains("truncated 200 chars"),
+            "marker missing; got: {result}"
+        );
     }
 
     #[test]
@@ -1511,8 +1514,15 @@ A Markdown report listing all findings.
         let result = truncate_log_for_prompt(&text, true);
         // Head must be exactly STDERR_HEAD_CHARS 'B's.
         let head: String = result.chars().take(STDERR_HEAD_CHARS).collect();
-        assert_eq!(head, "B".repeat(STDERR_HEAD_CHARS), "stderr head size mismatch");
-        assert!(result.contains("truncated 300 chars"), "marker missing; got: {result}");
+        assert_eq!(
+            head,
+            "B".repeat(STDERR_HEAD_CHARS),
+            "stderr head size mismatch"
+        );
+        assert!(
+            result.contains("truncated 300 chars"),
+            "marker missing; got: {result}"
+        );
     }
 
     #[test]
@@ -1522,7 +1532,10 @@ A Markdown report listing all findings.
         assert!(formatted.contains("SUCCESS"), "got: {formatted}");
         assert!(formatted.contains("12"), "got: {formatted}");
         assert!(formatted.contains("$0.0031"), "got: {formatted}");
-        assert!(!formatted.contains("exit"), "success run should not show exit code");
+        assert!(
+            !formatted.contains("exit"),
+            "success run should not show exit code"
+        );
     }
 
     #[test]
@@ -1531,7 +1544,10 @@ A Markdown report listing all findings.
         let formatted = format_log_for_prompt(&log);
         assert!(formatted.contains("FAILURE"), "got: {formatted}");
         assert!(formatted.contains("exit 1"), "got: {formatted}");
-        assert!(formatted.contains("error: something went wrong"), "got: {formatted}");
+        assert!(
+            formatted.contains("error: something went wrong"),
+            "got: {formatted}"
+        );
     }
 
     #[test]
@@ -1541,10 +1557,7 @@ A Markdown report listing all findings.
         log.status = "timeout".into();
         let formatted = format_log_for_prompt(&log);
         assert!(formatted.contains("TIMEOUT"), "got: {formatted}");
-        assert!(
-            formatted.contains("scope reduction"),
-            "got: {formatted}"
-        );
+        assert!(formatted.contains("scope reduction"), "got: {formatted}");
     }
 
     #[test]
@@ -1588,12 +1601,27 @@ A Markdown report listing all findings.
             &[],
         );
         assert!(!prompt.contains("{{TASK_NAME}}"), "unresolved TASK_NAME");
-        assert!(!prompt.contains("{{TASK_DESCRIPTION}}"), "unresolved TASK_DESCRIPTION");
-        assert!(!prompt.contains("{{CURRENT_COMMAND}}"), "unresolved CURRENT_COMMAND");
-        assert!(!prompt.contains("{{EXECUTION_HISTORY}}"), "unresolved EXECUTION_HISTORY");
-        assert!(!prompt.contains("{{AGENT_BLOCK}}"), "unresolved AGENT_BLOCK");
+        assert!(
+            !prompt.contains("{{TASK_DESCRIPTION}}"),
+            "unresolved TASK_DESCRIPTION"
+        );
+        assert!(
+            !prompt.contains("{{CURRENT_COMMAND}}"),
+            "unresolved CURRENT_COMMAND"
+        );
+        assert!(
+            !prompt.contains("{{EXECUTION_HISTORY}}"),
+            "unresolved EXECUTION_HISTORY"
+        );
+        assert!(
+            !prompt.contains("{{AGENT_BLOCK}}"),
+            "unresolved AGENT_BLOCK"
+        );
         assert!(prompt.contains("test-task"), "task name missing");
-        assert!(prompt.contains("Runs stuff efficiently"), "task description missing");
+        assert!(
+            prompt.contains("Runs stuff efficiently"),
+            "task description missing"
+        );
         assert!(prompt.contains("claude -p 'do stuff'"), "command missing");
     }
 
@@ -1601,18 +1629,18 @@ A Markdown report listing all findings.
     fn build_optimization_prompt_description_fallback() {
         // When task_description is empty, task_name is used as the description.
         let logs = vec![make_log(0, 0, "success", None)];
-        let prompt = build_optimization_prompt(
-            "my-task",
-            "",
-            "run it",
-            &OptimizationFocus::All,
-            &logs,
-            &[],
-        );
+        let prompt =
+            build_optimization_prompt("my-task", "", "run it", &OptimizationFocus::All, &logs, &[]);
         // The task name should appear twice: once in TASK_NAME and once as TASK_DESCRIPTION.
         let occurrences = prompt.matches("my-task").count();
-        assert!(occurrences >= 2, "expected task name used as description fallback; got occurrences={occurrences}");
-        assert!(!prompt.contains("{{TASK_DESCRIPTION}}"), "unresolved TASK_DESCRIPTION");
+        assert!(
+            occurrences >= 2,
+            "expected task name used as description fallback; got occurrences={occurrences}"
+        );
+        assert!(
+            !prompt.contains("{{TASK_DESCRIPTION}}"),
+            "unresolved TASK_DESCRIPTION"
+        );
     }
 
     #[test]
@@ -1728,7 +1756,11 @@ A Markdown report listing all findings.
         // Same command → no "changed but score 100" warning.
         let outcome = validate_optimization_result(raw, "claude -p 'do the thing'").unwrap();
         assert_eq!(outcome.result.confidence_score, 100);
-        assert!(outcome.warnings.is_empty(), "unexpected warnings: {:?}", outcome.warnings);
+        assert!(
+            outcome.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            outcome.warnings
+        );
     }
 
     #[test]
@@ -1753,10 +1785,12 @@ A Markdown report listing all findings.
           "confidence_score": 100,
           "optimization_categories": ["efficiency"]
         }"#;
-        let outcome =
-            validate_optimization_result(raw, "claude -p 'original command'").unwrap();
+        let outcome = validate_optimization_result(raw, "claude -p 'original command'").unwrap();
         assert!(
-            outcome.warnings.iter().any(|w| w.contains("confidence_score is 100")),
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("confidence_score is 100")),
             "expected 'changed but score 100' warning; got: {:?}",
             outcome.warnings
         );
@@ -1776,7 +1810,10 @@ A Markdown report listing all findings.
         .to_string();
         let outcome = validate_optimization_result(&raw, original).unwrap();
         assert!(
-            outcome.warnings.iter().any(|w| w.contains("scope expansion")),
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("scope expansion")),
             "expected scope expansion warning; got: {:?}",
             outcome.warnings
         );
@@ -1796,7 +1833,10 @@ A Markdown report listing all findings.
         .to_string();
         let outcome = validate_optimization_result(&raw, &original).unwrap();
         assert!(
-            outcome.warnings.iter().any(|w| w.contains("capability loss")),
+            outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("capability loss")),
             "expected capability loss warning; got: {:?}",
             outcome.warnings
         );
@@ -1815,6 +1855,10 @@ A Markdown report listing all findings.
         })
         .to_string();
         let outcome = validate_optimization_result(&raw, original).unwrap();
-        assert!(outcome.warnings.is_empty(), "unexpected warnings: {:?}", outcome.warnings);
+        assert!(
+            outcome.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            outcome.warnings
+        );
     }
 }

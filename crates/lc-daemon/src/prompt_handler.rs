@@ -7,9 +7,9 @@
 
 use lc_config::RegistryManager;
 use lc_core::prompt::{
-    build_meta_prompt, build_optimization_prompt, build_retry_meta_prompt,
-    truncate_log_for_prompt, validate_generated_prompt, validate_optimization_result, LogSummary,
-    OptimizationFocus, ParsedPrompt, ValidationOutcome,
+    build_meta_prompt, build_optimization_prompt, build_retry_meta_prompt, truncate_log_for_prompt,
+    validate_generated_prompt, validate_optimization_result, LogSummary, OptimizationFocus,
+    ParsedPrompt, ValidationOutcome,
 };
 use lc_core::{rpc_errors, JsonRpcResponse, LogQuery, TaskId};
 use serde::Deserialize;
@@ -290,10 +290,7 @@ pub async fn handle_prompt_optimize(
         }
     };
 
-    let max_logs = input
-        .max_logs
-        .map(|n| n.clamp(1, 50))
-        .unwrap_or(10) as usize;
+    let max_logs = input.max_logs.map(|n| n.clamp(1, 50)).unwrap_or(10) as usize;
 
     let focus: OptimizationFocus = match input.focus.as_deref() {
         Some("efficiency") => OptimizationFocus::Efficiency,
@@ -449,42 +446,40 @@ pub async fn handle_prompt_optimize(
     };
 
     // 8. Validate; retry once with error appended on failure.
-    let ValidationOutcome { result, warnings } =
-        match validate_optimization_result(&raw_output, &original_command) {
-            Ok(outcome) => outcome,
-            Err(validation_err) => {
-                debug!(
-                    error = %validation_err,
-                    "Optimization validation failed, retrying with error feedback"
-                );
+    let ValidationOutcome { result, warnings } = match validate_optimization_result(
+        &raw_output,
+        &original_command,
+    ) {
+        Ok(outcome) => outcome,
+        Err(validation_err) => {
+            debug!(
+                error = %validation_err,
+                "Optimization validation failed, retrying with error feedback"
+            );
 
-                let retry_prompt = format!(
+            let retry_prompt = format!(
                     "{optimization_prompt}\n\nIMPORTANT: Your previous response failed validation: {validation_err}\nPlease correct this and return valid JSON only."
                 );
 
-                let retry_output = match invoke_claude(&retry_prompt).await {
-                    Ok(output) => output,
-                    Err(e) => {
-                        return JsonRpcResponse::error(
-                            id,
-                            -32603,
-                            format!("Claude retry failed: {e}"),
-                        );
-                    }
-                };
+            let retry_output = match invoke_claude(&retry_prompt).await {
+                Ok(output) => output,
+                Err(e) => {
+                    return JsonRpcResponse::error(id, -32603, format!("Claude retry failed: {e}"));
+                }
+            };
 
-                match validate_optimization_result(&retry_output, &original_command) {
-                    Ok(outcome) => outcome,
-                    Err(retry_err) => {
-                        return JsonRpcResponse::error(
-                            id,
-                            -32603,
-                            format!("Optimization failed validation after retry: {retry_err}"),
-                        );
-                    }
+            match validate_optimization_result(&retry_output, &original_command) {
+                Ok(outcome) => outcome,
+                Err(retry_err) => {
+                    return JsonRpcResponse::error(
+                        id,
+                        -32603,
+                        format!("Optimization failed validation after retry: {retry_err}"),
+                    );
                 }
             }
-        };
+        }
+    };
 
     for warning in &warnings {
         warn!(task_id = %input.task_id, "Optimization warning: {warning}");
@@ -644,7 +639,11 @@ mod tests {
             &[],
             usize::MAX,
         );
-        assert_eq!(result.len(), 5, "all logs should be returned when within budget");
+        assert_eq!(
+            result.len(),
+            5,
+            "all logs should be returned when within budget"
+        );
     }
 
     #[test]
@@ -667,7 +666,10 @@ mod tests {
             "log count should have been reduced; got {}",
             result.len()
         );
-        assert!(result.len() >= 1, "at least one log must always be returned");
+        assert!(
+            result.len() >= 1,
+            "at least one log must always be returned"
+        );
     }
 
     #[test]
