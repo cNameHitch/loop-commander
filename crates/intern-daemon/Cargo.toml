@@ -1,0 +1,25 @@
+[package]
+name = "intern-daemon"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "intern"
+path = "src/main.rs"
+
+[dependencies]
+intern-core = { path = "../intern-core" }
+intern-config = { path = "../intern-config" }
+intern-scheduler = { path = "../intern-scheduler" }
+intern-logger = { path = "../intern-logger" }
+intern-runner = { path = "../intern-runner" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

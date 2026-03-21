@@ -1,6 +1,6 @@
 # GitHub Actions Workflows
 
-This document describes the CI/CD pipelines for Loop Commander.
+This document describes the CI/CD pipelines for Intern.
 
 ## Workflows Overview
 
@@ -67,16 +67,16 @@ Triggers on version tags matching pattern `v*` (e.g., `v0.1.0`, `v1.2.3`).
 - Extracts version from git tag (validates semver format)
 - Builds release binaries:
   - `cargo build --release`
-  - Produces: `loop-commander`, `lc-runner`, `lc`
+  - Produces: `intern`, `intern-runner`, `intern`
 - Builds Swift app:
   - `swift build -c release`
   - Runs `build-app.sh` to create `.app` bundle
 - Packages artifacts:
-  - **Tarball**: `loop-commander-{VERSION}-darwin-arm64.tar.gz`
+  - **Tarball**: `intern-{VERSION}-darwin-arm64.tar.gz`
     - Contains 3 Rust binaries
     - Optimized for binary installation
-  - **App Bundle**: `LoopCommander-{VERSION}.zip`
-    - Contains `Loop Commander.app`
+  - **App Bundle**: `Intern-{VERSION}.zip`
+    - Contains `Intern.app`
     - Ready to drag-and-drop into Applications folder
 - Generates SHA256 checksums for both artifacts
 - Outputs version for downstream jobs
@@ -149,8 +149,8 @@ The release pipeline validates this and fails if tag format is invalid.
 
 **GitHub Actions Artifacts** (temporary, 7-day retention)
 - `release-artifacts/`
-  - `loop-commander-{VERSION}-darwin-arm64.tar.gz`
-  - `LoopCommander-{VERSION}.zip`
+  - `intern-{VERSION}-darwin-arm64.tar.gz`
+  - `Intern-{VERSION}.zip`
   - `CHECKSUMS.txt`
 
 **GitHub Releases** (permanent)
@@ -167,25 +167,25 @@ The release pipeline validates this and fails if tag format is invalid.
 **Option 1: Binary Installation (Tarball)**
 ```bash
 # Download and extract
-tar -xzf loop-commander-{VERSION}-darwin-arm64.tar.gz
+tar -xzf intern-{VERSION}-darwin-arm64.tar.gz
 
 # Install to PATH
-sudo mv loop-commander lc-runner lc /usr/local/bin/
+sudo mv intern intern-runner intern /usr/local/bin/
 
 # Verify
-loop-commander --version
+intern --version
 ```
 
 **Option 2: App Bundle Installation (Zip)**
 ```bash
 # Download and extract
-unzip LoopCommander-{VERSION}.zip
+unzip Intern-{VERSION}.zip
 
 # Install to Applications folder
-mv "Loop Commander.app" /Applications/
+mv "Intern.app" /Applications/
 
 # Or run directly
-open "Loop Commander.app"
+open "Intern.app"
 ```
 
 **Option 3: Verify Checksums**
@@ -194,8 +194,8 @@ open "Loop Commander.app"
 sha256sum -c CHECKSUMS.txt
 
 # Expected output:
-# loop-commander-{VERSION}-darwin-arm64.tar.gz: OK
-# LoopCommander-{VERSION}.zip: OK
+# intern-{VERSION}-darwin-arm64.tar.gz: OK
+# Intern-{VERSION}.zip: OK
 ```
 
 ---
@@ -287,7 +287,7 @@ When adding code signing:
    - name: Sign binaries
      run: |
        codesign -s "${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}" \
-         dist/loop-commander dist/lc-runner dist/lc
+         dist/intern dist/intern-runner dist/intern
    ```
 4. Update release notes with signature verification instructions
 

@@ -13,7 +13,7 @@ macos-app/.swiftpm/
 *.xcuserstate
 xcuserdata/
 
-# Loop Commander runtime data
+# Intern runtime data
 .loop-commander/
 *.db
 *.db-wal

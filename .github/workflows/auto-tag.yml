@@ -19,8 +19,8 @@ jobs:
       - name: Extract version from Cargo.toml
         id: version
         run: |
-          # Extract version from lc-daemon/Cargo.toml (primary binary)
-          VERSION=$(grep '^version' crates/lc-daemon/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          # Extract version from intern-daemon/Cargo.toml (primary binary)
+          VERSION=$(grep '^version' crates/intern-daemon/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
 
           if [[ -z "$VERSION" ]]; then
             echo "Failed to extract version from Cargo.toml"

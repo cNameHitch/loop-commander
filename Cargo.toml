@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/lc-core",
-    "crates/lc-config",
-    "crates/lc-scheduler",
-    "crates/lc-runner",
-    "crates/lc-logger",
-    "crates/lc-daemon",
-    "crates/lc-cli",
+    "crates/intern-core",
+    "crates/intern-config",
+    "crates/intern-scheduler",
+    "crates/intern-runner",
+    "crates/intern-logger",
+    "crates/intern-daemon",
+    "crates/intern-cli",
 ]
 
 [workspace.dependencies]

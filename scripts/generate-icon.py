@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate the Loop Commander app icon.
+Generate the Intern app icon.
 
 Replicates the sidebar logo exactly:
   - Rounded rectangle with indigo gradient (#818cf8 -> #6366f1)
@@ -40,9 +40,9 @@ os.makedirs(ASSETS_DIR, exist_ok=True)
 
 SIZE = 1024
 
-# Indigo gradient colours (matches Color+LoopCommander.swift)
-COLOR_TL = (129, 140, 248)       # #818cf8 lcAccent
-COLOR_BR = (99, 102, 241)        # #6366f1 lcAccentDeep
+# Indigo gradient colours (matches Color+Intern.swift)
+COLOR_TL = (129, 140, 248)       # #818cf8 inAccent
+COLOR_BR = (99, 102, 241)        # #6366f1 inAccentDeep
 
 # Rounded rect
 INSET = 60

@@ -27,12 +27,12 @@ assignees: ''
 - **macOS Version**: (e.g., Ventura 13.5, Sonoma 14.2)
 - **Rust Version**: (output of `rustc --version`)
 - **Swift Version**: (output of `swift --version` if macOS app related)
-- **Loop Commander Version**: (commit hash or version tag)
+- **Intern Version**: (commit hash or version tag)
 
 ## Logs
 
 <!-- Relevant error messages or logs from:
-- ~/.loop-commander/logs.db (run: sqlite3 ~/.loop-commander/logs.db "SELECT * FROM execution_logs LIMIT 5;")
+- ~/.intern/logs.db (run: sqlite3 ~/.intern/logs.db "SELECT * FROM execution_logs LIMIT 5;")
 - daemon output if running in foreground
 - terminal error messages
 -->

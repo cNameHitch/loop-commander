@@ -8,14 +8,14 @@ import PackageDescription
 // BLOCKER 1 — SPM executable dependency restriction
 //   Swift Package Manager does not allow a testTarget to declare a dependency
 //   on an executableTarget.  The fix is to refactor the project into:
-//     - A `.target(name: "LoopCommanderLib")` library containing all
+//     - A `.target(name: "InternLib")` library containing all
 //       application source (with the public API surface marked `public`).
-//     - A thin `.executableTarget(name: "LoopCommander")` that contains only
-//       the @main entry point (LoopCommanderApp.swift) and depends on
-//       LoopCommanderLib.
-//     - The `.testTarget(name: "LoopCommanderTests")` depending on
-//       LoopCommanderLib and using `@testable import LoopCommanderLib`.
-//   The test files in Tests/LoopCommanderTests/ are fully written and will
+//     - A thin `.executableTarget(name: "Intern")` that contains only
+//       the @main entry point (InternApp.swift) and depends on
+//       InternLib.
+//     - The `.testTarget(name: "InternTests")` depending on
+//       InternLib and using `@testable import InternLib`.
+//   The test files in Tests/InternTests/ are fully written and will
 //   compile without modification once this refactor is complete.  The local
 //   stub types in PromptOptimizerViewModelTests.swift replace the real types
 //   during the interim and are removed after @testable import is restored.
@@ -29,26 +29,26 @@ import PackageDescription
 // the PromptOptimizerViewModelTests suite directly.
 
 let package = Package(
-    name: "LoopCommander",
+    name: "Intern",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "LoopCommander", targets: ["LoopCommander"]),
+        .executable(name: "Intern", targets: ["Intern"]),
     ],
     targets: [
         .executableTarget(
-            name: "LoopCommander",
-            path: "LoopCommander"
+            name: "Intern",
+            path: "Intern"
         ),
 
         // Test infrastructure for GAP-04/05/06.
-        // No dependency on LoopCommander is declared here because SPM
+        // No dependency on Intern is declared here because SPM
         // forbids testTargets from depending on executableTargets.
         // The test files contain self-contained stubs of the types under
         // test; they are ready to be wired to the real implementation once
-        // the LoopCommanderLib library target is introduced.
+        // the InternLib library target is introduced.
         .testTarget(
-            name: "LoopCommanderTests",
-            path: "Tests/LoopCommanderTests"
+            name: "InternTests",
+            path: "Tests/InternTests"
         ),
     ]
 )

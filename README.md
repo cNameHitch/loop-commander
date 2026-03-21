@@ -1,20 +1,20 @@
 <p align="center">
-  <img src="loop-logo.png" alt="Loop Commander" width="128" height="128">
+  <img src="loop-logo.png" alt="Intern" width="128" height="128">
 </p>
 
-<h1 align="center">Loop Commander</h1>
+<h1 align="center">Intern</h1>
 
-<p align="center">System-level macOS scheduler for Claude Code tasks with a native SwiftUI dashboard.</p>
+<p align="center">Schedule Claude tasks to run autonomously on macOS with persistent scheduling and a native dashboard.</p>
 
-Loop Commander is a persistent, local-first task automation system built on Rust and native Swift. It integrates with launchd to run Claude commands on a schedule, track execution history, and monitor spending—all from a beautiful macOS dashboard or command-line interface. Tasks survive system reboots and run reliably with per-task budgets, timeouts, and safety limits.
+Intern is a persistent, local-first task automation system built on Rust and native Swift. It integrates with launchd to run Claude commands on a schedule, track execution history, and monitor spending—all from a beautiful macOS dashboard or command-line interface. Tasks survive system reboots and run reliably with per-task budgets, timeouts, and safety limits.
 
 <!-- Screenshot: Add app screenshot here -->
 
 > **License**: Source Available. Free to use, not free to redistribute. See [LICENSE](LICENSE).
 
-## Why Loop Commander
+## Why Intern
 
-Automate repetitive code tasks that Claude excels at: PR reviews, error log analysis, documentation generation, dependency audits, and more. Define a task once, set a schedule, and let it run. No cron knowledge required. Full cost tracking and execution history built in.
+Automate repetitive code tasks that Claude excels at: PR reviews, error log analysis, documentation generation, dependency audits, and more. Define a task once, set a schedule, and let Intern run it. No cron knowledge required. Full cost tracking and execution history built in.
 
 ## Key Features
 
@@ -44,7 +44,7 @@ Automate repetitive code tasks that Claude excels at: PR reviews, error log anal
 Install the latest release with a single command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cNameHitch/loop-commander/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/cNameHitch/intern/main/install.sh | bash
 ```
 
 This installs the CLI binaries to `~/.local/bin/` and the macOS app to `~/Applications/`. The installer verifies SHA256 checksums before installing.
@@ -53,16 +53,16 @@ Options:
 
 ```bash
 # Install a specific version
-curl -fsSL https://raw.githubusercontent.com/cNameHitch/loop-commander/main/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/cNameHitch/intern/main/install.sh | bash -s -- --version v0.1.0
 
 # Install CLI only (skip the macOS app)
-curl -fsSL https://raw.githubusercontent.com/cNameHitch/loop-commander/main/install.sh | bash -s -- --cli-only
+curl -fsSL https://raw.githubusercontent.com/cNameHitch/intern/main/install.sh | bash -s -- --cli-only
 ```
 
 To uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cNameHitch/loop-commander/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/cNameHitch/intern/main/uninstall.sh | bash
 ```
 
 The uninstall script stops the daemon, removes launchd plists, deletes binaries and the app, and prompts before removing data.
@@ -70,31 +70,31 @@ The uninstall script stops the daemon, removes launchd plists, deletes binaries 
 ### Build from Source
 
 ```bash
-git clone https://github.com/cNameHitch/loop-commander.git
-cd loop-commander
+git clone https://github.com/cNameHitch/intern.git
+cd intern
 
 # Build Rust daemon, runner, and CLI
 cargo build --release
 
 # Install binaries
 mkdir -p ~/.local/bin
-cp target/release/{loop-commander,lc-runner,lc} ~/.local/bin/
+cp target/release/{intern,intern-runner,intern} ~/.local/bin/
 
 # Build the macOS app
 cd macos-app && ./build-app.sh
 
 # Launch it
-open "build/Loop Commander.app"
+open "build/Intern.app"
 ```
 
 ### Start the Daemon
 
 ```bash
-loop-commander &
-lc daemon status
+intern &
+intern daemon status
 ```
 
-On first start, the daemon creates `~/.loop-commander/` with default `config.yaml` and initializes the SQLite database.
+On first start, the daemon creates `~/.intern/` with default `config.yaml` and initializes the SQLite database.
 
 ## How It Works
 
@@ -110,14 +110,14 @@ Each execution is isolated, tracked, and capped by a spending limit. The daemon 
 ### Start the Daemon
 
 ```bash
-loop-commander &
-lc daemon status
+intern &
+intern daemon status
 ```
 
 ### Create Your First Task
 
 ```bash
-lc add \
+intern add \
   --name "PR Review Sweep" \
   --command "claude -p 'Review all open PRs and comment on logic errors.'" \
   --schedule "0 9 * * 1-5"
@@ -128,7 +128,7 @@ Tasks are scheduled with standard 5-field cron syntax. The example above runs at
 ### List Tasks
 
 ```bash
-lc list
+intern list
 ```
 
 Output:
@@ -140,14 +140,14 @@ lc-a1b2c3d4   PR Review Sweep    Daily at 09:00      active    0      -
 ### View Execution Logs
 
 ```bash
-lc logs lc-a1b2c3d4 --limit 10
-lc logs lc-a1b2c3d4 --follow
+intern logs lc-a1b2c3d4 --limit 10
+intern logs lc-a1b2c3d4 --follow
 ```
 
 ### Launch the Dashboard
 
 ```bash
-open "~/Applications/Loop Commander.app"
+open "~/Applications/Intern.app"
 ```
 
 The dashboard displays active tasks, real-time metrics, execution history, and a task editor with live validation.
@@ -155,53 +155,53 @@ The dashboard displays active tasks, real-time metrics, execution history, and a
 ### Trigger an Immediate Run
 
 ```bash
-lc run lc-a1b2c3d4
+intern run lc-a1b2c3d4
 ```
 
 ### Pause and Resume
 
 ```bash
-lc pause lc-a1b2c3d4
-lc resume lc-a1b2c3d4
+intern pause lc-a1b2c3d4
+intern resume lc-a1b2c3d4
 ```
 
 ## Architecture
 
-Loop Commander is a 7-crate Cargo workspace plus a native SwiftUI macOS app:
+Intern is a 7-crate Cargo workspace plus a native SwiftUI macOS app:
 
 | Component | Purpose |
 |-----------|---------|
-| `lc-core` | Domain types, errors, IPC messages, validation |
-| `lc-config` | YAML config read/write for global and per-task settings |
-| `lc-scheduler` | launchd plist generation and lifecycle management |
-| `lc-runner` | Standalone binary invoked by launchd to execute tasks |
-| `lc-logger` | SQLite database for execution logs (WAL mode) |
-| `lc-daemon` | Unix socket JSON-RPC server, health monitoring, lifecycle |
-| `lc-cli` | Command-line interface |
+| `intern-core` | Domain types, errors, IPC messages, validation |
+| `intern-config` | YAML config read/write for global and per-task settings |
+| `intern-scheduler` | launchd plist generation and lifecycle management |
+| `intern-runner` | Standalone binary invoked by launchd to execute tasks |
+| `intern-logger` | SQLite database for execution logs (WAL mode) |
+| `intern-daemon` | Unix socket JSON-RPC server, health monitoring, lifecycle |
+| `intern-cli` | Command-line interface |
 | `macos-app/` | Native SwiftUI dashboard application |
 
 ### Communication Model
 
-The **daemon** is the sole writer to all persistent data. Both the CLI and macOS app communicate exclusively via **JSON-RPC 2.0 over a Unix domain socket** at `~/.loop-commander/daemon.sock`. This single-writer architecture eliminates race conditions and concurrency issues.
+The **daemon** is the sole writer to all persistent data. Both the CLI and macOS app communicate exclusively via **JSON-RPC 2.0 over a Unix domain socket** at `~/.intern/daemon.sock`. This single-writer architecture eliminates race conditions and concurrency issues.
 
 ```
 launchd (macOS scheduler)
-├─ Loads plist → spawns lc-runner
+├─ Loads plist → spawns intern-runner
 └─ Captures stdout/stderr
 
-Loop Commander Daemon
+Intern Daemon
 ├─ Listens: Unix socket
 ├─ Writes: YAML configs, SQLite logs
 ├─ Health checks: Every 60 seconds
 └─ Broadcasts: Real-time events to CLI/Swift app
 
-CLI (lc)              Swift App
+CLI (intern)              Swift App
 └─ JSON-RPC over socket ← (same protocol)
 ```
 
 ### Data Storage
 
-All data lives in `~/.loop-commander/`:
+All data lives in `~/.intern/`:
 
 | Location | Purpose |
 |----------|---------|
@@ -221,50 +221,50 @@ Symlinks in `~/Library/LaunchAgents/` point to the plists. All YAML writes are a
 
 | Command | Purpose |
 |---------|---------|
-| `lc daemon start` | Start the daemon in background |
-| `lc daemon stop` | Stop the daemon |
-| `lc daemon status` | Show daemon PID and uptime |
+| `intern daemon start` | Start the daemon in background |
+| `intern daemon stop` | Stop the daemon |
+| `intern daemon status` | Show daemon PID and uptime |
 
 ### Task Management
 
 | Command | Purpose |
 |---------|---------|
-| `lc list` | List all tasks |
-| `lc add [FLAGS]` | Create a new task |
-| `lc get <id>` | Show task details |
-| `lc edit <id> [FLAGS]` | Edit a task (schedule, budget, command) |
-| `lc rm <id> -y` | Delete a task |
-| `lc pause <id>` | Pause execution (task remains in system) |
-| `lc resume <id>` | Resume execution |
-| `lc run <id>` | Trigger immediate execution |
-| `lc stop <id>` | Kill a running task |
+| `intern list` | List all tasks |
+| `intern add [FLAGS]` | Create a new task |
+| `intern get <id>` | Show task details |
+| `intern edit <id> [FLAGS]` | Edit a task (schedule, budget, command) |
+| `intern rm <id> -y` | Delete a task |
+| `intern pause <id>` | Pause execution (task remains in system) |
+| `intern resume <id>` | Resume execution |
+| `intern run <id>` | Trigger immediate execution |
+| `intern stop <id>` | Kill a running task |
 
 ### Logs and Metrics
 
 | Command | Purpose |
 |---------|---------|
-| `lc logs [id] [FLAGS]` | Query execution logs |
-| `lc logs [id] --limit 10` | Show most recent 10 logs |
-| `lc logs [id] --status success` | Filter by status: success, failed, timeout, killed, skipped |
-| `lc logs [id] --search "error"` | Search stdout/stderr/summary |
-| `lc logs [id] --follow` | Stream new logs in real-time |
-| `lc status` | Show global summary: total tasks, runs, spend |
-| `lc metrics <id>` | Per-task metrics: runs, success rate, total cost |
+| `intern logs [id] [FLAGS]` | Query execution logs |
+| `intern logs [id] --limit 10` | Show most recent 10 logs |
+| `intern logs [id] --status success` | Filter by status: success, failed, timeout, killed, skipped |
+| `intern logs [id] --search "error"` | Search stdout/stderr/summary |
+| `intern logs [id] --follow` | Stream new logs in real-time |
+| `intern status` | Show global summary: total tasks, runs, spend |
+| `intern metrics <id>` | Per-task metrics: runs, success rate, total cost |
 
 ### Templates and Portability
 
 | Command | Purpose |
 |---------|---------|
-| `lc templates` | List built-in task templates |
-| `lc export <id> [--format yaml\|json]` | Export task definition |
-| `lc import <file.yaml>` | Import task definition |
+| `intern templates` | List built-in task templates |
+| `intern export <id> [--format yaml\|json]` | Export task definition |
+| `intern import <file.yaml>` | Import task definition |
 
 ### Configuration
 
 | Command | Purpose |
 |---------|---------|
-| `lc config get` | Show global config |
-| `lc config set --key value` | Update a config key |
+| `intern config get` | Show global config |
+| `intern config set --key value` | Update a config key |
 
 ### Global Flags
 
@@ -278,7 +278,7 @@ Symlinks in `~/Library/LaunchAgents/` point to the plists. All YAML writes are a
 
 ### Global Config
 
-`~/.loop-commander/config.yaml`:
+`~/.intern/config.yaml`:
 
 ```yaml
 version: 1
@@ -292,7 +292,7 @@ notifications_enabled: true          # Reserved for future use
 
 ### Task Configuration
 
-Each task is a YAML file at `~/.loop-commander/tasks/{task-id}.yaml`:
+Each task is a YAML file at `~/.intern/tasks/{task-id}.yaml`:
 
 ```yaml
 id: lc-a1b2c3d4
@@ -360,10 +360,10 @@ schedule:
 
 ## Execution Model
 
-When a task's schedule triggers (or `lc run` is called):
+When a task's schedule triggers (or `intern run` is called):
 
-1. **launchd** spawns `lc-runner --task-id <id>`
-2. **lc-runner**:
+1. **launchd** spawns `intern-runner --task-id <id>`
+2. **intern-runner**:
    - Loads task YAML and SQLite logger
    - Checks daily budget (skips if capped at `max_budget_per_run * 20`)
    - Builds the command (wraps plain text in `claude -p '...'` if needed)
@@ -389,7 +389,7 @@ When a task's schedule triggers (or `lc run` is called):
 
 - **Local-only**: No network exposure. All communication is Unix domain socket on localhost
 - **API keys in env**: Store secrets in task `env_vars`. They are persisted in YAML but NOT transmitted over network
-- **File permissions**: `~/.loop-commander/` and task YAML files are owned by the current user. Ensure proper umask
+- **File permissions**: `~/.intern/` and task YAML files are owned by the current user. Ensure proper umask
 - **Socket security**: `daemon.sock` is created with 0600 permissions (user-only access)
 - **No elevated privileges**: All daemon operations run as the current user; no sudo required
 
@@ -405,7 +405,7 @@ cargo build --release
 cargo test --workspace
 
 # Run tests for a specific crate
-cargo test -p lc-core
+cargo test -p intern-core
 
 # Build Swift app
 cd macos-app && swift build
@@ -418,22 +418,22 @@ cd macos-app && swift build -c release && ./build-app.sh
 
 ```
 crates/
-├── lc-core/              # Domain types, errors, IPC messages
-├── lc-config/            # YAML config read/write
-├── lc-scheduler/         # launchd plist generation and control
-├── lc-runner/            # Task executor binary (spawned by launchd)
-├── lc-logger/            # SQLite execution logs (WAL mode)
-├── lc-daemon/            # Unix socket JSON-RPC server
-└── lc-cli/               # Command-line interface
+├── intern-core/              # Domain types, errors, IPC messages
+├── intern-config/            # YAML config read/write
+├── intern-scheduler/         # launchd plist generation and control
+├── intern-runner/            # Task executor binary (spawned by launchd)
+├── intern-logger/            # SQLite execution logs (WAL mode)
+├── intern-daemon/            # Unix socket JSON-RPC server
+└── intern-cli/               # Command-line interface
 
 macos-app/
-├── LoopCommander/        # SwiftUI source code
-│   ├── Models/           # Task, ExecutionLog, DashboardMetrics
-│   ├── Services/         # DaemonClient (JSON-RPC), DaemonMonitor
-│   ├── ViewModels/       # MVVM logic
-│   └── Views/            # SwiftUI components
-├── LoopCommanderTests/   # Unit tests
-└── Package.swift         # Swift package manifest
+├── Intern/                   # SwiftUI source code
+│   ├── Models/               # Task, ExecutionLog, DashboardMetrics
+│   ├── Services/             # DaemonClient (JSON-RPC), DaemonMonitor
+│   ├── ViewModels/           # MVVM logic
+│   └── Views/                # SwiftUI components
+├── InternTests/              # Unit tests
+└── Package.swift             # Swift package manifest
 ```
 
 ### Key Design Decisions
@@ -443,7 +443,7 @@ macos-app/
 3. **launchd integration**: Tasks persist across reboots; no polling needed
 4. **Atomic YAML writes**: Temp file + fsync + rename prevents corruption
 5. **SQLite WAL mode**: Concurrent readers while daemon writes
-6. **lc-runner as separate binary**: Process isolation; task crashes don't affect daemon
+6. **intern-runner as separate binary**: Process isolation; task crashes don't affect daemon
 
 ### Testing
 
@@ -454,7 +454,7 @@ cargo test --workspace
 cargo test --workspace -- --nocapture
 
 # Run a specific test
-cargo test -p lc-scheduler test_cron_conversion
+cargo test -p intern-scheduler test_cron_conversion
 ```
 
 Some integration tests require launchd access and are skipped in CI with `#[cfg(not(ci))]`.
@@ -464,13 +464,13 @@ Some integration tests require launchd access and are skipped in CI with `#[cfg(
 ### Daemon not responding
 
 ```bash
-lc daemon status
+intern daemon status
 
 # Start it
-loop-commander &
+intern &
 
 # Check if it's running
-ps aux | grep loop-commander
+ps aux | grep intern
 ```
 
 ### Stale socket connection
@@ -478,25 +478,25 @@ ps aux | grep loop-commander
 Remove stale socket and restart:
 
 ```bash
-rm -f ~/.loop-commander/daemon.sock
-loop-commander &
+rm -f ~/.intern/daemon.sock
+intern &
 ```
 
 ### Task not executing
 
 1. Check task status:
    ```bash
-   lc get <id>
+   intern get <id>
    ```
 
 2. Verify launchd job is loaded:
    ```bash
-   launchctl print gui/$(id -u)/com.loopcommander.task.<id>
+   launchctl print gui/$(id -u)/com.intern.task.<id>
    ```
 
 3. Check logs:
    ```bash
-   lc logs <id> --limit 5
+   intern logs <id> --limit 5
    ```
 
 ### Budget exceeded
@@ -504,15 +504,15 @@ loop-commander &
 Tasks are skipped if daily spend >= `max_budget_per_run * 20`. Check:
 
 ```bash
-lc metrics <id>
-lc logs <id> --status skipped
+intern metrics <id>
+intern logs <id> --status skipped
 ```
 
 ### launchd won't load plist
 
 Ensure:
-1. Plist path is readable: `ls -la ~/Library/LaunchAgents/com.loopcommander.task.<id>.plist`
-2. lc-runner binary exists: `which lc-runner && file $(which lc-runner)`
+1. Plist path is readable: `ls -la ~/Library/LaunchAgents/com.intern.task.<id>.plist`
+2. intern-runner binary exists: `which intern-runner && file $(which intern-runner)`
 3. Working directory exists: check `WorkingDirectory` in plist
 
 ### Logs not appearing
@@ -520,15 +520,15 @@ Ensure:
 Check SQLite:
 
 ```bash
-sqlite3 ~/.loop-commander/logs.db "SELECT COUNT(*) FROM execution_logs;"
+sqlite3 ~/.intern/logs.db "SELECT COUNT(*) FROM execution_logs;"
 ```
 
 If table doesn't exist, restart the daemon:
 
 ```bash
-lc daemon stop
+intern daemon stop
 sleep 1
-loop-commander &
+intern &
 ```
 
 ## JSON-RPC API
@@ -605,7 +605,7 @@ See `specs.md` for full method signatures.
 
 ## CI/CD
 
-Loop Commander uses GitHub Actions for continuous integration and release automation.
+Intern uses GitHub Actions for continuous integration and release automation.
 
 ### CI Pipeline
 
@@ -634,8 +634,8 @@ The release pipeline:
 2. Builds optimized Rust binaries (`cargo build --release`)
 3. Builds the macOS `.app` bundle (`build-app.sh`)
 4. Packages artifacts:
-   - `loop-commander-{version}-darwin-arm64.tar.gz` -- CLI binaries
-   - `LoopCommander-{version}.zip` -- macOS app bundle
+   - `intern-{version}-darwin-arm64.tar.gz` -- CLI binaries
+   - `Intern-{version}.zip` -- macOS app bundle
    - `CHECKSUMS.txt` -- SHA256 checksums
 5. Creates a GitHub Release with all artifacts and auto-generated release notes
 
@@ -643,7 +643,7 @@ Workflow files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.githu
 
 ## License
 
-Loop Commander is **source available** under the [Loop Commander Source Available License](LICENSE).
+Intern is **source available** under the [Intern Source Available License](LICENSE).
 
 You are free to view, download, build, and use the software for personal or internal business purposes. Redistribution, resale, hosting as a service, and creation of derivative works for distribution are **not permitted**. See [LICENSE](LICENSE) for full terms.
 

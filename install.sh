@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Loop Commander — install.sh
-# https://github.com/cNameHitch/loop-commander
+# Intern — install.sh
+# https://github.com/cNameHitch/intern
 #
-# Installs the Loop Commander CLI binaries and macOS app from GitHub Releases.
+# Installs the Intern CLI binaries and macOS app from GitHub Releases.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/cNameHitch/loop-commander/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/cNameHitch/loop-commander/main/install.sh | bash -s -- --version v1.2.0
-#   curl -fsSL https://raw.githubusercontent.com/cNameHitch/loop-commander/main/install.sh | bash -s -- --cli-only
+#   curl -fsSL https://raw.githubusercontent.com/cNameHitch/intern/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/cNameHitch/intern/main/install.sh | bash -s -- --version v1.2.0
+#   curl -fsSL https://raw.githubusercontent.com/cNameHitch/intern/main/install.sh | bash -s -- --cli-only
 
 set -euo pipefail
 
@@ -15,14 +15,14 @@ set -euo pipefail
 # Constants
 # ---------------------------------------------------------------------------
 
-REPO="cNameHitch/loop-commander"
+REPO="cNameHitch/intern"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 GITHUB_RELEASES="https://github.com/${REPO}/releases/download"
 
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/Applications"
 
-BINARIES=("loop-commander" "lc-runner" "lc")
+BINARIES=("intern" "intern-runner")
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -47,7 +47,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -h|--help)
             cat <<EOF
-Loop Commander installer
+Intern installer
 
 Usage:
   install.sh [OPTIONS]
@@ -87,12 +87,12 @@ require_cmd() {
 # ---------------------------------------------------------------------------
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-    die "Loop Commander requires macOS. Linux and Windows are not supported."
+    die "Intern requires macOS. Linux and Windows are not supported."
 fi
 
 ARCH="$(uname -m)"
 if [[ "${ARCH}" != "arm64" ]]; then
-    die "Loop Commander currently only provides pre-built binaries for Apple Silicon (arm64). \
+    die "Intern currently only provides pre-built binaries for Apple Silicon (arm64). \
 Detected architecture: ${ARCH}. \
 Please build from source: https://github.com/${REPO}#installation"
 fi
@@ -110,7 +110,7 @@ require_cmd shasum
 # Code signing helper (required for macOS notifications)
 # ---------------------------------------------------------------------------
 
-CERT_NAME="Loop Commander Dev"
+CERT_NAME="Intern Dev"
 
 sign_app_bundle() {
     local app_path="$1"
@@ -137,8 +137,8 @@ prompt = no
 default_md = sha256
 distinguished_name = dn
 [ dn ]
-CN = Loop Commander Dev
-O = Loop Commander
+CN = Intern Dev
+O = Intern
 [ v3_code_sign ]
 keyUsage = critical, digitalSignature
 extendedKeyUsage = codeSigning
@@ -198,14 +198,26 @@ Check your internet connection or specify a version with --version."
     fi
 fi
 
-info "Installing Loop Commander ${VERSION}..."
+info "Installing Intern ${VERSION}..."
+
+# ---------------------------------------------------------------------------
+# Migration notice
+# ---------------------------------------------------------------------------
+
+if [[ -d "${HOME}/.loop-commander" ]] && [[ ! -d "${HOME}/.intern" ]]; then
+    info ""
+    info "Migration notice: existing data found at ~/.loop-commander/"
+    info "Intern will automatically migrate your tasks and configuration on first run."
+    info "Your old data will be preserved at ~/.loop-commander/ as a backup."
+    info ""
+fi
 
 # ---------------------------------------------------------------------------
 # Build asset names
 # ---------------------------------------------------------------------------
 
-TARBALL="loop-commander-${VERSION}-darwin-arm64.tar.gz"
-APP_ZIP="LoopCommander-${VERSION}.zip"
+TARBALL="intern-${VERSION}-darwin-arm64.tar.gz"
+APP_ZIP="Intern-${VERSION}.zip"
 CHECKSUMS="checksums.txt"
 
 TARBALL_URL="${GITHUB_RELEASES}/${VERSION}/${TARBALL}"
@@ -293,28 +305,28 @@ success "CLI binaries installed to ${BIN_DIR}."
 # ---------------------------------------------------------------------------
 
 if [[ "${CLI_ONLY}" == "false" ]]; then
-    info "Installing Loop Commander.app to ${APP_DIR}..."
+    info "Installing Intern.app to ${APP_DIR}..."
     mkdir -p "${APP_DIR}"
 
     # Remove prior installation to ensure a clean copy.
-    if [[ -d "${APP_DIR}/Loop Commander.app" ]]; then
-        info "  Removing previous installation of Loop Commander.app..."
-        rm -rf "${APP_DIR}/Loop Commander.app"
+    if [[ -d "${APP_DIR}/Intern.app" ]]; then
+        info "  Removing previous installation of Intern.app..."
+        rm -rf "${APP_DIR}/Intern.app"
     fi
 
     unzip -q "${TMP_DIR}/${APP_ZIP}" -d "${TMP_DIR}/app_unzip"
 
-    APP_BUNDLE="$(find "${TMP_DIR}/app_unzip" -maxdepth 2 -name "Loop Commander.app" -type d | head -1)"
+    APP_BUNDLE="$(find "${TMP_DIR}/app_unzip" -maxdepth 2 -name "Intern.app" -type d | head -1)"
     if [[ -z "${APP_BUNDLE}" ]]; then
-        die "'Loop Commander.app' not found inside ${APP_ZIP}. The release archive may be malformed."
+        die "'Intern.app' not found inside ${APP_ZIP}. The release archive may be malformed."
     fi
 
-    cp -R "${APP_BUNDLE}" "${APP_DIR}/Loop Commander.app"
-    info "  Installed ${APP_DIR}/Loop Commander.app"
+    cp -R "${APP_BUNDLE}" "${APP_DIR}/Intern.app"
+    info "  Installed ${APP_DIR}/Intern.app"
 
     # Sign the app bundle so macOS notifications work properly.
     # Without signing, UNUserNotificationCenter denies permission requests.
-    sign_app_bundle "${APP_DIR}/Loop Commander.app"
+    sign_app_bundle "${APP_DIR}/Intern.app"
 
     success "macOS app installed to ${APP_DIR}."
 fi
@@ -359,18 +371,18 @@ fi
 # ---------------------------------------------------------------------------
 
 printf "\n"
-printf "Loop Commander %s installed successfully.\n" "${VERSION}"
+printf "Intern %s installed successfully.\n" "${VERSION}"
 printf "\n"
 printf "Next steps:\n"
 printf "\n"
 printf "  1. Start the daemon:\n"
-printf "       loop-commander &\n"
+printf "       intern &\n"
 printf "\n"
 printf "  2. Verify the daemon is running:\n"
-printf "       lc daemon status\n"
+printf "       intern daemon status\n"
 printf "\n"
 printf "  3. Create your first task:\n"
-printf "       lc add \\\\\n"
+printf "       intern add \\\\\n"
 printf "         --name \"My First Task\" \\\\\n"
 printf "         --command \"claude -p 'Review recent commits for issues.'\" \\\\\n"
 printf "         --schedule \"0 9 * * 1-5\"\n"
@@ -378,7 +390,7 @@ printf "\n"
 
 if [[ "${CLI_ONLY}" == "false" ]]; then
     printf "  4. Open the dashboard:\n"
-    printf "       open \"~/Applications/Loop Commander.app\"\n"
+    printf "       open \"~/Applications/Intern.app\"\n"
     printf "\n"
 fi
 

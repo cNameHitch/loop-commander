@@ -17,7 +17,7 @@
 - [ ] Built the macOS app: `cd macos-app && swift build`
 - [ ] Tested the CLI with manual commands
 - [ ] Verified daemon health and socket communication
-- [ ] Tested with fresh `~/.loop-commander/` directory if schema changes
+- [ ] Tested with fresh `~/.intern/` directory if schema changes
 - [ ] Checked logs in SQLite if database changes involved
 
 ## Related Issues

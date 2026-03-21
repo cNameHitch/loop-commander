@@ -122,13 +122,12 @@ jobs:
           mkdir -p dist
 
           # Copy binaries
-          cp target/release/loop-commander dist/
-          cp target/release/lc-runner dist/
-          cp target/release/lc dist/
+          cp target/release/intern dist/
+          cp target/release/intern-runner dist/
 
           # Create tarball with binaries
-          TARBALL="loop-commander-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz"
-          tar -C dist -czf "dist/$TARBALL" loop-commander lc-runner lc
+          TARBALL="intern-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz"
+          tar -C dist -czf "dist/$TARBALL" intern intern-runner
 
           echo "artifacts=$TARBALL" >> $GITHUB_OUTPUT
           echo "Built tarball: dist/$TARBALL"
@@ -144,23 +143,23 @@ jobs:
           bash build-app.sh
 
           cd build
-          APP_NAME="Loop Commander.app"
-          ZIP_NAME="LoopCommander-${{ steps.version.outputs.version }}.zip"
+          APP_NAME="Intern.app"
+          ZIP_NAME="Intern-${{ steps.version.outputs.version }}.zip"
 
           # Create zip archive of the app
           ditto -c -k --sequesterRsrc --keepParent "$APP_NAME" "$ZIP_NAME"
           mv "$ZIP_NAME" ../../dist/
 
           cd ../..
-          echo "artifact=LoopCommander-${{ steps.version.outputs.version }}.zip" >> $GITHUB_OUTPUT
-          echo "Built app: dist/LoopCommander-${{ steps.version.outputs.version }}.zip"
-          ls -lh "dist/LoopCommander-${{ steps.version.outputs.version }}.zip"
+          echo "artifact=Intern-${{ steps.version.outputs.version }}.zip" >> $GITHUB_OUTPUT
+          echo "Built app: dist/Intern-${{ steps.version.outputs.version }}.zip"
+          ls -lh "dist/Intern-${{ steps.version.outputs.version }}.zip"
 
       - name: Generate checksums
         run: |
           cd dist
-          shasum -a 256 loop-commander-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz > CHECKSUMS.txt
-          shasum -a 256 LoopCommander-${{ steps.version.outputs.version }}.zip >> CHECKSUMS.txt
+          shasum -a 256 intern-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz > CHECKSUMS.txt
+          shasum -a 256 Intern-${{ steps.version.outputs.version }}.zip >> CHECKSUMS.txt
           cat CHECKSUMS.txt
 
       - name: Upload artifacts
@@ -203,22 +202,22 @@ jobs:
           fi
 
           # Create release notes
-          NOTES="Release Loop Commander v${VERSION}
+          NOTES="Release Intern v${VERSION}
 
           ## Artifacts
 
-          - \`loop-commander-${VERSION}-darwin-arm64.tar.gz\` - Rust binaries (loop-commander, lc-runner, lc)
-          - \`LoopCommander-${VERSION}.zip\` - Native macOS app bundle
+          - \`intern-${VERSION}-darwin-arm64.tar.gz\` - Rust binaries (intern, intern-runner)
+          - \`Intern-${VERSION}.zip\` - Native macOS app bundle
 
           ## Installation
 
           Extract the tarball and place binaries in your PATH:
           \`\`\`bash
-          tar -xzf loop-commander-${VERSION}-darwin-arm64.tar.gz
-          sudo mv loop-commander lc-runner lc /usr/local/bin/
+          tar -xzf intern-${VERSION}-darwin-arm64.tar.gz
+          sudo mv intern intern-runner /usr/local/bin/
           \`\`\`
 
-          Or run the native app by extracting the zip and double-clicking Loop Commander.app.
+          Or run the native app by extracting the zip and double-clicking Intern.app.
 
           ## Changes
 
@@ -239,8 +238,8 @@ jobs:
           draft: false
           prerelease: false
           artifacts: |
-            dist/loop-commander-${{ needs.build.outputs.version }}-darwin-arm64.tar.gz
-            dist/LoopCommander-${{ needs.build.outputs.version }}.zip
+            dist/intern-${{ needs.build.outputs.version }}-darwin-arm64.tar.gz
+            dist/Intern-${{ needs.build.outputs.version }}.zip
             dist/CHECKSUMS.txt
           artifactErrorsFailRelease: true
           makeLatest: true

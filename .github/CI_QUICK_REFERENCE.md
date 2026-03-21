@@ -87,11 +87,11 @@ swift build -v
 
 After a release is created on GitHub:
 
-1. **Navigate to**: https://github.com/username/loop-commander/releases
+1. **Navigate to**: https://github.com/username/intern/releases
 2. **Find**: Latest release (marked as "Latest")
 3. **Download**:
-   - `loop-commander-X.Y.Z-darwin-arm64.tar.gz` - Rust binaries
-   - `LoopCommander-X.Y.Z.zip` - macOS app bundle
+   - `intern-X.Y.Z-darwin-arm64.tar.gz` - Rust binaries
+   - `Intern-X.Y.Z.zip` - macOS app bundle
    - `CHECKSUMS.txt` - SHA256 verification
 
 ## Common Issues

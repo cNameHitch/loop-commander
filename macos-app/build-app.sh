@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Loop Commander as a proper macOS .app bundle
+# Build Intern as a proper macOS .app bundle
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -9,13 +9,13 @@ echo "Building Swift binary..."
 swift build -c debug 2>&1
 
 # Find the built binary
-BINARY=$(find .build -name "LoopCommander" -type f -not -path "*.dSYM*" | head -1)
+BINARY=$(find .build -name "Intern" -type f -not -path "*.dSYM*" | head -1)
 if [ -z "$BINARY" ]; then
     echo "Error: Could not find built binary"
     exit 1
 fi
 
-APP_DIR="$SCRIPT_DIR/build/Loop Commander.app"
+APP_DIR="$SCRIPT_DIR/build/Intern.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
@@ -25,8 +25,8 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES"
 
 # Copy binary
-cp "$BINARY" "$MACOS_DIR/LoopCommander"
-chmod +x "$MACOS_DIR/LoopCommander"
+cp "$BINARY" "$MACOS_DIR/Intern"
+chmod +x "$MACOS_DIR/Intern"
 
 # Copy app icon if present
 ICNS_SRC="$SCRIPT_DIR/Assets/AppIcon.icns"
@@ -46,17 +46,17 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>LoopCommander</string>
+    <string>Intern</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.loopcommander.app</string>
+    <string>com.intern.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Loop Commander</string>
+    <string>Intern</string>
     <key>CFBundleDisplayName</key>
-    <string>Loop Commander</string>
+    <string>Intern</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

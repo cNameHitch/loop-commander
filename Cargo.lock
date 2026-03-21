@@ -393,6 +393,114 @@ dependencies = [
 ]
 
 [[package]]
+name = "intern-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "intern-core",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+]
+
+[[package]]
+name = "intern-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dirs",
+ "intern-core",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "intern-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dirs",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "intern-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "intern-config",
+ "intern-core",
+ "intern-logger",
+ "intern-runner",
+ "intern-scheduler",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "intern-logger"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "intern-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "intern-runner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "intern-config",
+ "intern-core",
+ "intern-logger",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "intern-scheduler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "cron",
+ "dirs",
+ "intern-config",
+ "intern-core",
+ "plist",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -400,9 +508,9 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itoa"
-version = "1.0.17"
+version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "js-sys"
@@ -419,114 +527,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-
-[[package]]
-name = "lc-cli"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "lc-core",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
-]
-
-[[package]]
-name = "lc-config"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "chrono",
- "dirs",
- "lc-core",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "lc-core"
-version = "0.2.1"
-dependencies = [
- "chrono",
- "dirs",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 2.0.18",
- "uuid",
-]
-
-[[package]]
-name = "lc-daemon"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "chrono",
- "lc-config",
- "lc-core",
- "lc-logger",
- "lc-runner",
- "lc-scheduler",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lc-logger"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "chrono",
- "lc-core",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "lc-runner"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "lc-config",
- "lc-core",
- "lc-logger",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "lc-scheduler"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "chrono",
- "cron",
- "dirs",
- "lc-config",
- "lc-core",
- "plist",
- "tempfile",
- "tracing",
-]
 
 [[package]]
 name = "leb128fmt"
@@ -1526,18 +1526,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.42"
+version = "0.8.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
+checksum = "efbb2a062be311f2ba113ce66f697a4dc589f85e78a4aea276200804cea0ed87"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.42"
+version = "0.8.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
+checksum = "0e8bc7269b54418e7aeeef514aa68f8690b8c0489a06b0136e5f57c4c5ccab89"
 dependencies = [
  "proc-macro2",
  "quote",
