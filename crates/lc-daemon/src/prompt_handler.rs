@@ -667,7 +667,7 @@ mod tests {
             result.len()
         );
         assert!(
-            result.len() >= 1,
+            !result.is_empty(),
             "at least one log must always be returned"
         );
     }
