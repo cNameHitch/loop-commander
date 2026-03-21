@@ -2,8 +2,8 @@ use anyhow::Context;
 use chrono::{DateTime, Local, Utc};
 use clap::{Parser, Subcommand};
 use intern_core::{
-    prompt::AgentEntry, CreateTaskInput, DashboardMetrics, DryRunResult, ExecutionLog,
-    JsonRpcRequest, JsonRpcResponse, InternPaths, Schedule, Task, TaskExport, TaskStatus,
+    prompt::AgentEntry, CreateTaskInput, DashboardMetrics, DryRunResult, ExecutionLog, InternPaths,
+    JsonRpcRequest, JsonRpcResponse, Schedule, Task, TaskExport, TaskStatus,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -361,7 +361,8 @@ async fn cmd_add(
     let (final_name, final_command, final_schedule, final_working_dir, final_budget, final_tags) =
         if let Some(slug) = template {
             let templates_result = send_rpc("templates.list", json!({})).await?;
-            let templates: Vec<intern_core::TaskTemplate> = serde_json::from_value(templates_result)?;
+            let templates: Vec<intern_core::TaskTemplate> =
+                serde_json::from_value(templates_result)?;
             let tmpl = templates
                 .iter()
                 .find(|t| t.slug == slug)
@@ -722,10 +723,7 @@ async fn cmd_status() -> anyhow::Result<()> {
         format!(" ({})", breakdown_parts.join(", "))
     };
 
-    println!(
-        "Intern -- {} tasks{}",
-        metrics.total_tasks, breakdown
-    );
+    println!("Intern -- {} tasks{}", metrics.total_tasks, breakdown);
     println!(
         "Total runs: {}  |  Success: {:.1}%  |  Spend: {}",
         metrics.total_runs,
@@ -917,9 +915,7 @@ async fn cmd_daemon_install() -> anyhow::Result<()> {
     let paths = InternPaths::new();
     let daemon_bin = find_daemon_binary()?;
 
-    let plist_path = paths
-        .launch_agents_dir
-        .join("com.intern.daemon.plist");
+    let plist_path = paths.launch_agents_dir.join("com.intern.daemon.plist");
 
     // Ensure LaunchAgents directory exists
     std::fs::create_dir_all(&paths.launch_agents_dir)?;
@@ -1249,9 +1245,7 @@ fn find_daemon_binary() -> anyhow::Result<std::path::PathBuf> {
     }
 
     // 4. which
-    let output = std::process::Command::new("which")
-        .arg("intern")
-        .output();
+    let output = std::process::Command::new("which").arg("intern").output();
     if let Ok(output) = output {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -1872,7 +1866,12 @@ mod tests {
 
     #[test]
     fn parse_generate_minimal() {
-        let cli = Cli::parse_from(["intern", "generate", "--intent", "Review open PRs for security"]);
+        let cli = Cli::parse_from([
+            "intern",
+            "generate",
+            "--intent",
+            "Review open PRs for security",
+        ]);
         match cli.command {
             Commands::Generate {
                 intent,

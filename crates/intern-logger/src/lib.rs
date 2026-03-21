@@ -8,7 +8,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
-use intern_core::{DailyCost, DashboardMetrics, ExecStatus, ExecutionLog, LogQuery, Task, TaskMetrics};
+use intern_core::{
+    DailyCost, DashboardMetrics, ExecStatus, ExecutionLog, LogQuery, Task, TaskMetrics,
+};
 use rusqlite::{params, Connection};
 use tracing::info;
 

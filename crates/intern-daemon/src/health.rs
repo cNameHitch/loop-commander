@@ -112,7 +112,10 @@ pub async fn health_check_loop(
 ///
 /// This function never returns under normal operation. It is intended to
 /// be spawned as a background tokio task.
-pub async fn prune_loop(config: Arc<Mutex<ConfigManager>>, logger: Arc<Mutex<intern_logger::Logger>>) {
+pub async fn prune_loop(
+    config: Arc<Mutex<ConfigManager>>,
+    logger: Arc<Mutex<intern_logger::Logger>>,
+) {
     let mut interval = tokio::time::interval(Duration::from_secs(3600));
 
     loop {

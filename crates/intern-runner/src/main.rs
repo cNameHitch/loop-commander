@@ -375,7 +375,11 @@ fn log_skipped(logger: &Logger, task_id: &str, task_name: &str, reason: &str) {
 ///
 /// Does not propagate errors -- this is a best-effort operation as specified
 /// in the execution flow.
-fn restore_task_status(config_manager: &ConfigManager, task: &intern_core::Task, status: TaskStatus) {
+fn restore_task_status(
+    config_manager: &ConfigManager,
+    task: &intern_core::Task,
+    status: TaskStatus,
+) {
     let mut updated = task.clone();
     updated.status = status;
     updated.updated_at = Utc::now();
