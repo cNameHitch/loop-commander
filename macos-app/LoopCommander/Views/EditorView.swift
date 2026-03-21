@@ -534,7 +534,16 @@ struct EditorView: View {
     private var settingsPane: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 4) {
-                settingsSection("Task") { taskSection }
+                // AI Prompt Generator (new tasks only)
+                if vm.isCreating {
+                    PromptGeneratorPanel(
+                        vm: vm.promptGeneratorVM,
+                        draft: $vm.draft,
+                        workingDir: vm.draft.workingDir
+                    )
+                    .padding(.bottom, 8)
+                }
+
                 settingsSection("Schedule") { scheduleSection }
                 settingsSection("Execution") { executionSection }
                 settingsSection("Tags") { tagsSection }
@@ -543,6 +552,11 @@ struct EditorView: View {
             .padding(16)
         }
         .background(Color.lcBackground)
+        .onAppear {
+            if vm.isCreating {
+                Task { await vm.promptGeneratorVM.loadAgents() }
+            }
+        }
     }
 
     // MARK: - Settings Section Helper
@@ -567,18 +581,6 @@ struct EditorView: View {
                 .stroke(Color.lcBorder, lineWidth: LCBorder.standard)
         )
         .cornerRadius(LCRadius.panel)
-    }
-
-    // MARK: - Task Section
-
-    @ViewBuilder
-    private var taskSection: some View {
-        LCFormField(label: "Skill (optional)") {
-            LCTextField(
-                text: $vm.draft.skill,
-                placeholder: "/review-pr, /loop, etc."
-            )
-        }
     }
 
     // MARK: - Schedule Section

@@ -1,3 +1,6 @@
+pub mod builtin_agents;
+pub mod prompt;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -194,6 +197,9 @@ pub struct Task {
     pub status: TaskStatus,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Agent slugs used to generate this task's prompt.
+    #[serde(default)]
+    pub agents: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -372,6 +378,7 @@ pub struct CreateTaskInput {
     pub max_turns: Option<u32>,
     pub timeout_secs: Option<u64>,
     pub tags: Option<Vec<String>>,
+    pub agents: Option<Vec<String>>,
 }
 
 impl CreateTaskInput {
@@ -461,6 +468,7 @@ pub struct UpdateTaskInput {
     pub max_turns: Option<u32>,
     pub timeout_secs: Option<u64>,
     pub tags: Option<Vec<String>>,
+    pub agents: Option<Vec<String>>,
     pub status: Option<TaskStatus>,
 }
 
@@ -604,6 +612,8 @@ pub struct LcPaths {
     pub plists_dir: PathBuf,
     pub output_dir: PathBuf,
     pub db_file: PathBuf,
+    /// Generated prompt files: `~/.loop-commander/prompts/`.
+    pub prompts_dir: PathBuf,
     /// Unix domain socket: `~/.loop-commander/daemon.sock` (NOT `/tmp/`).
     pub socket_path: PathBuf,
     pub pid_file: PathBuf,
@@ -624,6 +634,7 @@ impl LcPaths {
             tasks_dir: root.join("tasks"),
             plists_dir: root.join("plists"),
             output_dir: root.join("output"),
+            prompts_dir: root.join("prompts"),
             db_file: root.join("logs.db"),
             // SECURITY: Using /tmp is vulnerable to symlink attacks and other users
             // on shared machines. Use a user-scoped path under the data dir instead.
@@ -641,6 +652,7 @@ impl LcPaths {
             tasks_dir: root.join("tasks"),
             plists_dir: root.join("plists"),
             output_dir: root.join("output"),
+            prompts_dir: root.join("prompts"),
             db_file: root.join("logs.db"),
             socket_path: root.join("daemon.sock"),
             pid_file: root.join("daemon.pid"),
@@ -655,6 +667,7 @@ impl LcPaths {
         std::fs::create_dir_all(&self.tasks_dir)?;
         std::fs::create_dir_all(&self.plists_dir)?;
         std::fs::create_dir_all(&self.output_dir)?;
+        std::fs::create_dir_all(&self.prompts_dir)?;
         Ok(())
     }
 }
@@ -827,6 +840,8 @@ pub struct TaskExport {
     pub timeout_secs: u64,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub agents: Vec<String>,
 }
 
 impl From<&Task> for TaskExport {
@@ -844,6 +859,7 @@ impl From<&Task> for TaskExport {
             max_turns: task.max_turns,
             timeout_secs: task.timeout_secs,
             tags: task.tags.clone(),
+            agents: task.agents.clone(),
         }
     }
 }
@@ -862,6 +878,7 @@ impl From<TaskExport> for CreateTaskInput {
             max_turns: export.max_turns,
             timeout_secs: Some(export.timeout_secs),
             tags: Some(export.tags),
+            agents: Some(export.agents),
         }
     }
 }
@@ -1055,6 +1072,7 @@ mod tests {
             timeout_secs: 600,
             status: TaskStatus::Active,
             tags: vec!["test".into()],
+            agents: vec![],
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -1141,6 +1159,7 @@ mod tests {
             max_turns: None,
             timeout_secs: Some(600),
             tags: Some(vec!["test".into()]),
+            agents: None,
         };
         assert!(input.validate().is_ok());
     }
@@ -1159,6 +1178,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("name")));
@@ -1178,6 +1198,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("200")));
@@ -1197,6 +1218,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("control")));
@@ -1216,6 +1238,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("command")));
@@ -1235,6 +1258,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("budget")));
@@ -1254,6 +1278,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("100")));
@@ -1273,6 +1298,7 @@ mod tests {
             max_turns: None,
             timeout_secs: Some(0),
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("timeout")));
@@ -1292,6 +1318,7 @@ mod tests {
             max_turns: None,
             timeout_secs: Some(100_000),
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("86400")));
@@ -1312,6 +1339,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: Some(tags),
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("20")));
@@ -1331,6 +1359,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: Some(vec!["x".repeat(51)]),
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(errors.iter().any(|e| e.contains("50")));
@@ -1350,6 +1379,7 @@ mod tests {
             max_turns: None,
             timeout_secs: Some(0),
             tags: None,
+            agents: None,
         };
         let errors = input.validate().unwrap_err();
         assert!(
@@ -1373,6 +1403,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
             status: None,
         };
         assert!(input.validate().is_ok());
@@ -1393,6 +1424,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
             status: None,
         };
         let errors = input.validate().unwrap_err();
@@ -1431,6 +1463,7 @@ mod tests {
             timeout_secs: 300,
             status: TaskStatus::Active,
             tags: vec!["export".into()],
+            agents: vec![],
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -1455,6 +1488,7 @@ mod tests {
             max_turns: Some(5),
             timeout_secs: 100,
             tags: vec!["imported".into()],
+            agents: vec![],
         };
         let input = CreateTaskInput::from(export);
         assert_eq!(input.name, "Imported");

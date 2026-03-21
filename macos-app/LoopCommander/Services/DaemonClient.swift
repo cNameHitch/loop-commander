@@ -551,4 +551,26 @@ final class DaemonClient: @unchecked Sendable {
     func getCostTrend(days: Int = 7) async throws -> [DailyCost] {
         return try await call("metrics.cost_trend", params: ["days": days])
     }
+
+    func listAgents() async throws -> [AgentEntry] {
+        return try await call("registry.list")
+    }
+
+    func refreshAgentRegistry() async throws -> RegistryRefreshResult {
+        return try await call("registry.refresh")
+    }
+
+    /// Generate a prompt from a natural-language intent and a set of agent slugs.
+    ///
+    /// NOTE: This call invokes an LLM on the daemon side and may take up to 60 seconds.
+    /// The socket read timeout is set to 30 seconds by default, so callers should be
+    /// aware that this method may hit DaemonClientError.timeout on slow networks or
+    /// heavily loaded daemons.
+    func generatePrompt(intent: String, agents: [String], workingDir: String) async throws -> PromptGenerateResult {
+        return try await call("prompt.generate", params: [
+            "intent": intent,
+            "agents": agents,
+            "working_dir": workingDir
+        ])
+    }
 }

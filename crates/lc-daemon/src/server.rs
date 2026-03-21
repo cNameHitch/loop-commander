@@ -214,6 +214,13 @@ async fn dispatch(
         // Schedule utilities
         "schedule.validate" => handle_schedule_validate(id, params).await,
 
+        // Prompt generation
+        "prompt.generate" => crate::prompt_handler::handle_prompt_generate(id, params, state).await,
+
+        // Agent registry
+        "registry.refresh" => crate::prompt_handler::handle_registry_refresh(id, state).await,
+        "registry.list" => crate::prompt_handler::handle_registry_list(id, state).await,
+
         // Unknown method
         _ => JsonRpcResponse::error(id, -32601, format!("Method not found: {method}")),
     }

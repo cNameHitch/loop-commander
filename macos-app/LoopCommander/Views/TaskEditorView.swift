@@ -32,6 +32,16 @@ struct TaskEditorView: View {
                     .padding(.bottom, 20)
             }
 
+            // AI prompt generator (only for new tasks)
+            if vm.isNew {
+                PromptGeneratorPanel(
+                    vm: vm.promptGeneratorVM,
+                    draft: $vm.draft,
+                    workingDir: vm.draft.workingDir
+                )
+                .padding(.bottom, 20)
+            }
+
             // Form fields
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -204,6 +214,9 @@ struct TaskEditorView: View {
         .onAppear {
             vm.setClient(daemonMonitor.client)
             Task { await vm.loadTemplates() }
+            if vm.isNew {
+                Task { await vm.promptGeneratorVM.loadAgents() }
+            }
         }
     }
 
