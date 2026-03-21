@@ -310,7 +310,7 @@ fn parse_list_item(item: &str, category: &str) -> Option<AgentEntry> {
             let inner = &item[1..close_bracket];
             if let Some(close_paren) = item[close_bracket..].find(')') {
                 let rest = &item[close_bracket + close_paren + 1..];
-                &format!("{inner}{rest}").leak() // Safe in this context: small allocations during parsing
+                format!("{inner}{rest}").leak() // Safe in this context: small allocations during parsing
             } else {
                 item
             }

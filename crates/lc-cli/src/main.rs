@@ -1183,11 +1183,10 @@ async fn cmd_agents_list(category: Option<String>) -> anyhow::Result<()> {
     }
 
     println!(
-        "{}  {}  {}  {}",
+        "{}  {}  {}  DESCRIPTION",
         pad("SLUG", 28),
         pad("NAME", 24),
         pad("CATEGORY", 14),
-        "DESCRIPTION",
     );
 
     for agent in &agents {
