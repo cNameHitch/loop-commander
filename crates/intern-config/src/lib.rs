@@ -4,7 +4,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use intern_core::{CreateTaskInput, InternError, InternPaths, Task, TaskId, TaskStatus, UpdateTaskInput};
+use intern_core::{
+    CreateTaskInput, InternError, InternPaths, Task, TaskId, TaskStatus, UpdateTaskInput,
+};
 // Re-export Schedule for consumers of this crate.
 pub use intern_core::Schedule;
 pub use registry::RegistryManager;
@@ -149,8 +151,9 @@ impl ConfigManager {
             })?
         } else {
             let config = GlobalConfig::default();
-            let content = serde_yaml::to_string(&config)
-                .map_err(|e| InternError::Config(format!("Failed to serialize default config: {e}")))?;
+            let content = serde_yaml::to_string(&config).map_err(|e| {
+                InternError::Config(format!("Failed to serialize default config: {e}"))
+            })?;
             atomic_write(&paths.config_file, content.as_bytes())?;
             tracing::info!("Created default config at {}", paths.config_file.display());
             config
@@ -337,13 +340,12 @@ impl ConfigManager {
 
         // Check for filename collision.
         let primary_path = commands_dir.join(format!("{sanitized}.md"));
-        let filename = if primary_path.exists()
-            && !file_belongs_to_task(&primary_path, task.id.as_str())
-        {
-            format!("{}-{}.md", sanitized, &task.id.as_str()[3..11])
-        } else {
-            format!("{sanitized}.md")
-        };
+        let filename =
+            if primary_path.exists() && !file_belongs_to_task(&primary_path, task.id.as_str()) {
+                format!("{}-{}.md", sanitized, &task.id.as_str()[3..11])
+            } else {
+                format!("{sanitized}.md")
+            };
 
         let file_path = commands_dir.join(&filename);
 
@@ -402,10 +404,7 @@ impl ConfigManager {
         for candidate in [&primary, &suffixed] {
             if candidate.exists() && file_belongs_to_task(candidate, task_id) {
                 if let Err(e) = std::fs::remove_file(candidate) {
-                    tracing::warn!(
-                        "Failed to delete context file {}: {e}",
-                        candidate.display()
-                    );
+                    tracing::warn!("Failed to delete context file {}: {e}", candidate.display());
                 } else {
                     tracing::debug!("Deleted context file {}", candidate.display());
                 }
@@ -661,15 +660,9 @@ fn generate_context_file_content(task: &Task) -> String {
 
     // Automated Execution Notice
     s.push_str("## Automated Execution Notice\n\n");
-    s.push_str(
-        "You are running as a **scheduled unattended task** via Intern. This means:\n\n",
-    );
-    s.push_str(
-        "- No human is present. Do not ask for clarification — use your best judgment.\n",
-    );
-    s.push_str(
-        "- Do not wait for confirmation before taking actions within the stated scope.\n",
-    );
+    s.push_str("You are running as a **scheduled unattended task** via Intern. This means:\n\n");
+    s.push_str("- No human is present. Do not ask for clarification — use your best judgment.\n");
+    s.push_str("- Do not wait for confirmation before taking actions within the stated scope.\n");
     s.push_str("- Produce structured output as specified and exit cleanly.\n");
     s.push_str("- If you encounter an ambiguous situation, take the most conservative action and document what you did.\n");
     s.push('\n');
@@ -1307,6 +1300,9 @@ mod tests {
             .join(".claude")
             .join("commands")
             .join(format!("review-{short_id}.md"));
-        assert!(suffixed.exists(), "Suffixed file should exist for collision case");
+        assert!(
+            suffixed.exists(),
+            "Suffixed file should exist for collision case"
+        );
     }
 }

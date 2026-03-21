@@ -104,9 +104,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: macos-app/.build
-          key: ${{ runner.os }}-swift-build-${{ hashFiles('macos-app/Package.swift') }}
+          key: ${{ runner.os }}-swift-build-intern-${{ hashFiles('macos-app/Package.swift', 'macos-app/Intern/**/*.swift') }}
           restore-keys: |
-            ${{ runner.os }}-swift-build-
+            ${{ runner.os }}-swift-build-intern-
+
+      - name: Clean stale Swift build cache
+        run: |
+          if [ -d macos-app/.build ] && grep -rq "loop-commander" macos-app/.build 2>/dev/null; then
+            echo "Stale cache detected, cleaning..."
+            rm -rf macos-app/.build
+          fi
 
       - name: Build Swift app
         run: cd macos-app && swift build --verbose

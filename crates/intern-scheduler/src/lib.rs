@@ -606,7 +606,10 @@ fn find_runner() -> Result<PathBuf> {
         if let Some(dir) = exe.parent() {
             let candidate = dir.join("intern-runner");
             if candidate.is_file() {
-                debug!(?candidate, "Found intern-runner alongside current executable");
+                debug!(
+                    ?candidate,
+                    "Found intern-runner alongside current executable"
+                );
                 return Ok(candidate);
             }
         }
