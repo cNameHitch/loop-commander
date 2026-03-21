@@ -7,6 +7,7 @@
 
 mod events;
 mod health;
+mod prompt_handler;
 mod server;
 
 use std::collections::HashMap;

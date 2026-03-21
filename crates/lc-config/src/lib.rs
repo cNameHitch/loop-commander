@@ -1,3 +1,5 @@
+pub mod registry;
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -5,6 +7,7 @@ use chrono::Utc;
 use lc_core::{CreateTaskInput, LcError, LcPaths, Task, TaskId, TaskStatus, UpdateTaskInput};
 // Re-export Schedule for consumers of this crate.
 pub use lc_core::Schedule;
+pub use registry::RegistryManager;
 use serde::{Deserialize, Serialize};
 
 // ── Global Config ────────────────────────────────────────
@@ -331,6 +334,7 @@ impl ConfigManager {
             timeout_secs: input.timeout_secs.unwrap_or(self.global.default_timeout),
             status: TaskStatus::Active,
             tags: input.tags.unwrap_or_default(),
+            agents: input.agents.unwrap_or_default(),
             created_at: now,
             updated_at: now,
         }
@@ -373,6 +377,9 @@ impl ConfigManager {
         }
         if let Some(tags) = update.tags {
             task.tags = tags;
+        }
+        if let Some(agents) = update.agents {
+            task.agents = agents;
         }
         if let Some(status) = update.status {
             task.status = status;
@@ -541,6 +548,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: Some(vec!["test".to_string()]),
+            agents: None,
         }
     }
 
@@ -585,6 +593,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
             status: Some(TaskStatus::Paused),
         };
 
@@ -747,6 +756,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
         };
 
         let task = mgr.create_task_from_input(input);
@@ -777,6 +787,7 @@ mod tests {
             max_turns: Some(100),
             timeout_secs: Some(1200),
             tags: Some(vec!["custom".to_string(), "important".to_string()]),
+            agents: None,
         };
 
         let task = mgr.create_task_from_input(input);
@@ -859,6 +870,7 @@ mod tests {
             max_turns: None,
             timeout_secs: None,
             tags: None,
+            agents: None,
             status: None,
         };
 

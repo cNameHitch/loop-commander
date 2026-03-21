@@ -558,6 +558,7 @@ mod tests {
             timeout_secs: 600,
             status: TaskStatus::Active,
             tags: vec![],
+            agents: vec![],
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

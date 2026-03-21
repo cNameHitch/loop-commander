@@ -9,6 +9,7 @@ class TaskEditorViewModel: ObservableObject {
     @Published var isSaving: Bool = false
     @Published var error: String?
     @Published var validationErrors: [String] = []
+    @Published var promptGeneratorVM = PromptGeneratorViewModel()
 
     let isNew: Bool
     let taskId: String?
@@ -33,6 +34,7 @@ class TaskEditorViewModel: ObservableObject {
 
     func setClient(_ client: DaemonClient) {
         self.client = client
+        promptGeneratorVM.setClient(client)
     }
 
     func loadTemplates() async {

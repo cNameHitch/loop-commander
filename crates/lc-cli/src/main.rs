@@ -2,8 +2,8 @@ use anyhow::Context;
 use chrono::{DateTime, Local, Utc};
 use clap::{Parser, Subcommand};
 use lc_core::{
-    CreateTaskInput, DashboardMetrics, DryRunResult, ExecutionLog, JsonRpcRequest, JsonRpcResponse,
-    LcPaths, Schedule, Task, TaskExport, TaskStatus,
+    prompt::AgentEntry, CreateTaskInput, DashboardMetrics, DryRunResult, ExecutionLog,
+    JsonRpcRequest, JsonRpcResponse, LcPaths, Schedule, Task, TaskExport, TaskStatus,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -109,6 +109,23 @@ enum Commands {
     },
     /// First-run setup
     Init,
+    /// Generate a Claude prompt from a plain English intent
+    Generate {
+        /// Plain English description of what the task should do
+        #[arg(long)]
+        intent: String,
+        /// Comma-separated agent slugs to include
+        #[arg(long, value_delimiter = ',')]
+        agents: Option<Vec<String>>,
+        /// Working directory context (defaults to current dir)
+        #[arg(long)]
+        working_dir: Option<String>,
+    },
+    /// Agent registry management
+    Agents {
+        #[command(subcommand)]
+        action: AgentsAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -121,6 +138,18 @@ enum DaemonAction {
     Status,
     /// Install daemon as a launchd service
     Install,
+}
+
+#[derive(Subcommand)]
+enum AgentsAction {
+    /// List available agents from the registry
+    List {
+        /// Filter by category
+        #[arg(long)]
+        category: Option<String>,
+    },
+    /// Force-refresh the agent registry from GitHub
+    Refresh,
 }
 
 #[derive(Subcommand)]
@@ -382,6 +411,7 @@ async fn cmd_add(
         max_turns: None,
         timeout_secs: None,
         tags: final_tags,
+        agents: None,
     };
 
     let result = send_rpc("task.create", serde_json::to_value(&input)?).await?;
@@ -419,6 +449,7 @@ async fn cmd_edit(
         max_turns: None,
         timeout_secs: None,
         tags: None,
+        agents: None,
         status: None,
     };
 
@@ -1059,6 +1090,140 @@ theme: dark
     Ok(())
 }
 
+async fn cmd_generate(
+    intent: String,
+    agents: Option<Vec<String>>,
+    working_dir: Option<String>,
+) -> anyhow::Result<()> {
+    let resolved_dir = match working_dir {
+        Some(d) => d,
+        None => std::env::current_dir()
+            .context("Failed to determine current directory")?
+            .to_string_lossy()
+            .into_owned(),
+    };
+
+    let params = json!({
+        "intent": intent,
+        "agents": agents.unwrap_or_default(),
+        "working_dir": resolved_dir,
+    });
+
+    let result = send_rpc("prompt.generate", params).await?;
+
+    let name = result
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let description = result
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let tags = result
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_else(|| "-".to_string());
+    let agents_used = result
+        .get("agents")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| a.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_else(|| "-".to_string());
+    let saved_to = result
+        .get("saved_to")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let command = result
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    println!("{}  {}", pad("Generated prompt:", 18), name);
+    println!("{}  {}", pad("Description:", 18), description);
+    println!("{}  {}", pad("Tags:", 18), tags);
+    println!("{}  {}", pad("Agents:", 18), agents_used);
+    println!("{}  {}", pad("Saved to:", 18), saved_to);
+
+    if !command.is_empty() {
+        println!();
+        println!("Preview:");
+        let preview = if command.len() > 500 {
+            &command[..500]
+        } else {
+            command
+        };
+        println!("{preview}");
+        if command.len() > 500 {
+            println!("... (truncated)");
+        }
+    }
+
+    Ok(())
+}
+
+async fn cmd_agents_list(category: Option<String>) -> anyhow::Result<()> {
+    let result = send_rpc("registry.list", json!({})).await?;
+    let mut agents: Vec<AgentEntry> = serde_json::from_value(result)?;
+
+    if let Some(ref cat) = category {
+        agents.retain(|a| a.category.eq_ignore_ascii_case(cat));
+    }
+
+    if agents.is_empty() {
+        if category.is_some() {
+            println!("No agents found in that category.");
+        } else {
+            println!("No agents in registry. Populate it with: lc agents refresh");
+        }
+        return Ok(());
+    }
+
+    println!(
+        "{}  {}  {}  {}",
+        pad("SLUG", 28),
+        pad("NAME", 24),
+        pad("CATEGORY", 14),
+        "DESCRIPTION",
+    );
+
+    for agent in &agents {
+        let description_col = if agent.description.len() > 60 {
+            &agent.description[..60]
+        } else {
+            &agent.description
+        };
+        println!(
+            "{}  {}  {}  {}",
+            pad(&agent.slug, 28),
+            pad(&agent.name, 24),
+            pad(&agent.category, 14),
+            description_col,
+        );
+    }
+
+    Ok(())
+}
+
+async fn cmd_agents_refresh() -> anyhow::Result<()> {
+    let result = send_rpc("registry.refresh", json!({})).await?;
+    let count = result
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    println!("Registry refreshed. {count} agents available.");
+    Ok(())
+}
+
 // ── Utility Functions ────────────────────────────────────
 
 /// Find the loop-commander daemon binary.
@@ -1171,6 +1336,15 @@ async fn main() {
             ConfigAction::Set { key, value } => cmd_config_set(key, value).await,
         },
         Commands::Init => cmd_init().await,
+        Commands::Generate {
+            intent,
+            agents,
+            working_dir,
+        } => cmd_generate(intent, agents, working_dir).await,
+        Commands::Agents { action } => match action {
+            AgentsAction::List { category } => cmd_agents_list(category).await,
+            AgentsAction::Refresh => cmd_agents_refresh().await,
+        },
     };
 
     if let Err(e) = result {
@@ -1701,6 +1875,82 @@ mod tests {
                 assert_eq!(expression, "*/15 * * * *");
             }
             _ => panic!("Expected Cron schedule"),
+        }
+    }
+
+    // -- Generate / Agents Parsing ------------------------------------
+
+    #[test]
+    fn parse_generate_minimal() {
+        let cli = Cli::parse_from(["lc", "generate", "--intent", "Review open PRs for security"]);
+        match cli.command {
+            Commands::Generate {
+                intent,
+                agents,
+                working_dir,
+            } => {
+                assert_eq!(intent, "Review open PRs for security");
+                assert!(agents.is_none());
+                assert!(working_dir.is_none());
+            }
+            _ => panic!("Expected Generate command"),
+        }
+    }
+
+    #[test]
+    fn parse_generate_with_agents() {
+        let cli = Cli::parse_from([
+            "lc",
+            "generate",
+            "--intent",
+            "Audit dependencies",
+            "--agents",
+            "security-auditor,code-reviewer",
+            "--working-dir",
+            "/projects/myapp",
+        ]);
+        match cli.command {
+            Commands::Generate {
+                intent,
+                agents,
+                working_dir,
+            } => {
+                assert_eq!(intent, "Audit dependencies");
+                assert_eq!(
+                    agents,
+                    Some(vec![
+                        "security-auditor".to_string(),
+                        "code-reviewer".to_string(),
+                    ])
+                );
+                assert_eq!(working_dir, Some("/projects/myapp".to_string()));
+            }
+            _ => panic!("Expected Generate command"),
+        }
+    }
+
+    #[test]
+    fn parse_agents_list() {
+        let cli = Cli::parse_from(["lc", "agents", "list", "--category", "security"]);
+        match cli.command {
+            Commands::Agents { action } => match action {
+                AgentsAction::List { category } => {
+                    assert_eq!(category, Some("security".to_string()));
+                }
+                _ => panic!("Expected List action"),
+            },
+            _ => panic!("Expected Agents command"),
+        }
+    }
+
+    #[test]
+    fn parse_agents_refresh() {
+        let cli = Cli::parse_from(["lc", "agents", "refresh"]);
+        match cli.command {
+            Commands::Agents { action } => {
+                assert!(matches!(action, AgentsAction::Refresh));
+            }
+            _ => panic!("Expected Agents command"),
         }
     }
 }

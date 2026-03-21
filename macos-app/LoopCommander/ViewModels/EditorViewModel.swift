@@ -57,6 +57,9 @@ class EditorViewModel: ObservableObject {
     /// Briefly true after a successful save to show a confirmation banner.
     @Published var showSavedConfirmation: Bool = false
 
+    /// Child view model for AI prompt generation.
+    @Published var promptGeneratorVM = PromptGeneratorViewModel()
+
     // MARK: - Internal State
 
     /// Snapshot of the draft as it existed when editing began; used for dirty
@@ -97,6 +100,7 @@ class EditorViewModel: ObservableObject {
     /// DaemonMonitor environment object.
     func setClient(_ client: DaemonClient) {
         self.client = client
+        promptGeneratorVM.setClient(client)
     }
 
     // MARK: - Lifecycle

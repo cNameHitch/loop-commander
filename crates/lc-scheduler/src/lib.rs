@@ -893,6 +893,7 @@ mod tests {
             timeout_secs: 600,
             status: TaskStatus::Active,
             tags: vec![],
+            agents: vec![],
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         }
@@ -917,6 +918,7 @@ mod tests {
             timeout_secs: 600,
             status: TaskStatus::Active,
             tags: vec![],
+            agents: vec![],
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         }

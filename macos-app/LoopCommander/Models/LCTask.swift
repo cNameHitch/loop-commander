@@ -16,6 +16,7 @@ struct LCTask: Codable, Identifiable, Hashable {
     var timeoutSecs: Int
     var status: TaskStatus
     var tags: [String]
+    var agents: [String]
     let createdAt: String
     var updatedAt: String
 
@@ -33,7 +34,7 @@ struct LCTask: Codable, Identifiable, Hashable {
         case maxBudgetPerRun = "max_budget_per_run"
         case maxTurns = "max_turns"
         case timeoutSecs = "timeout_secs"
-        case status, tags
+        case status, tags, agents
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -62,6 +63,7 @@ struct LCTaskDraft {
     var maxTurns: Int? = nil
     var timeoutSecs: Int = 600
     var tags: [String] = []
+    var agents: [String] = []
     var envVars: [String: String] = [:]
 
     /// Create from an existing task for editing
@@ -76,6 +78,7 @@ struct LCTaskDraft {
         maxTurns = task.maxTurns
         timeoutSecs = task.timeoutSecs
         tags = task.tags
+        agents = task.agents
         envVars = task.envVars
     }
 
@@ -136,6 +139,7 @@ struct LCTaskDraft {
             "max_budget_per_run": maxBudget,
             "timeout_secs": timeoutSecs,
             "tags": tags,
+            "agents": agents,
         ]
         if !skill.isEmpty {
             params["skill"] = skill
@@ -160,6 +164,7 @@ struct LCTaskDraft {
         params["max_budget_per_run"] = maxBudget
         params["timeout_secs"] = timeoutSecs
         params["tags"] = tags
+        params["agents"] = agents
         if !skill.isEmpty {
             params["skill"] = skill
         }
@@ -282,6 +287,7 @@ extension LCTaskDraft: Equatable {
         lhs.maxTurns == rhs.maxTurns &&
         lhs.timeoutSecs == rhs.timeoutSecs &&
         lhs.tags == rhs.tags &&
+        lhs.agents == rhs.agents &&
         lhs.envVars == rhs.envVars
     }
 }
