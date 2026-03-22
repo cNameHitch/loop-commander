@@ -7,9 +7,10 @@
 
 use intern_config::RegistryManager;
 use intern_core::prompt::{
-    build_meta_prompt, build_optimization_prompt, build_retry_meta_prompt, truncate_log_for_prompt,
-    validate_generated_prompt, validate_optimization_result, LogSummary, OptimizationFocus,
-    ParsedPrompt, ValidationOutcome,
+    build_edit_meta_prompt, build_meta_prompt, build_optimization_prompt,
+    build_retry_meta_prompt, truncate_log_for_prompt, validate_edit_result,
+    validate_generated_prompt, validate_optimization_result,
+    LogSummary, OptimizationFocus, ParsedPrompt, ValidationOutcome,
 };
 use intern_core::{rpc_errors, JsonRpcResponse, LogQuery, TaskId};
 use serde::Deserialize;
@@ -507,6 +508,166 @@ pub async fn handle_prompt_optimize(
     JsonRpcResponse::success(id, response)
 }
 
+// ── prompt.edit ─────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct EditParams {
+    /// The task's current name.
+    name: String,
+    /// The task's current command / prompt text.
+    command: String,
+    /// The task's current cron schedule expression.
+    schedule: String,
+    /// Budget per run in USD.
+    #[serde(default = "intern_core::default_budget")]
+    budget: f64,
+    /// Timeout in seconds.
+    #[serde(default = "intern_core::default_timeout")]
+    timeout: u64,
+    /// Current tag list.
+    #[serde(default)]
+    tags: Vec<String>,
+    /// Current agent slug list.
+    #[serde(default)]
+    agents: Vec<String>,
+    /// User's plain-English refinement request. Required, non-empty.
+    feedback: String,
+}
+
+/// Handle `prompt.edit` JSON-RPC requests.
+///
+/// 1. Parse and validate params (feedback must be non-empty, <1000 chars)
+/// 2. Build edit meta-prompt from the draft fields and user feedback
+/// 3. Invoke Claude via `invoke_claude`
+/// 4. Validate the JSON response; retry once on failure
+/// 5. Return the refined draft fields and metadata as a JSON-RPC success
+pub async fn handle_prompt_edit(
+    id: serde_json::Value,
+    params: serde_json::Value,
+    _state: &SharedState,
+) -> JsonRpcResponse {
+    // 1. Parse params.
+    let input: EditParams = match serde_json::from_value(params) {
+        Ok(p) => p,
+        Err(e) => {
+            return JsonRpcResponse::error(id, -32602, format!("Invalid params: {e}"));
+        }
+    };
+
+    // Validate feedback.
+    let feedback = input.feedback.trim().to_string();
+    if feedback.is_empty() {
+        return JsonRpcResponse::error(
+            id,
+            rpc_errors::VALIDATION_ERROR,
+            "feedback: must not be empty".into(),
+        );
+    }
+    if feedback.len() > 1000 {
+        return JsonRpcResponse::error(
+            id,
+            rpc_errors::VALIDATION_ERROR,
+            format!(
+                "feedback: must be 1000 characters or fewer (got {})",
+                feedback.len()
+            ),
+        );
+    }
+
+    // 2. Build meta-prompt.
+    let meta_prompt = build_edit_meta_prompt(
+        &input.name,
+        &input.command,
+        &input.schedule,
+        input.budget,
+        input.timeout,
+        &input.tags,
+        &input.agents,
+        &feedback,
+    );
+
+    // 3. Invoke Claude.
+    let raw_output = match invoke_claude(&meta_prompt).await {
+        Ok(output) => output,
+        Err(e) => {
+            error!("Claude invocation failed for prompt.edit: {e}");
+            return JsonRpcResponse::error(id, -32603, format!("Claude invocation failed: {e}"));
+        }
+    };
+
+    // 4. Validate; retry once with error feedback appended on failure.
+    let result = match validate_edit_result(&raw_output) {
+        Ok(r) => r,
+        Err(validation_err) => {
+            debug!(
+                error = %validation_err,
+                "Edit validation failed, retrying with error feedback"
+            );
+
+            let retry_prompt = format!(
+                "{meta_prompt}\n\nIMPORTANT: Your previous response failed validation: {validation_err}\nPlease correct this and return valid JSON only."
+            );
+
+            let retry_output = match invoke_claude(&retry_prompt).await {
+                Ok(output) => output,
+                Err(e) => {
+                    return JsonRpcResponse::error(id, -32603, format!("Claude retry failed: {e}"));
+                }
+            };
+
+            match validate_edit_result(&retry_output) {
+                Ok(r) => r,
+                Err(retry_err) => {
+                    return JsonRpcResponse::error(
+                        id,
+                        -32603,
+                        format!("Edit failed validation after retry: {retry_err}"),
+                    );
+                }
+            }
+        }
+    };
+
+    info!(
+        task_name = %input.name,
+        confidence = result.confidence_score,
+        fields_changed = result.field_changes.len(),
+        "Prompt edit completed"
+    );
+
+    // 5. Return result.
+    let field_changes_json: serde_json::Value = result
+        .field_changes
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                serde_json::json!({
+                    "type": v.change_type,
+                    "reason": v.reason,
+                }),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+
+    let response = serde_json::json!({
+        "refined_name": result.refined_name,
+        "refined_command": result.refined_command,
+        "refined_schedule": result.refined_schedule,
+        "refined_budget": result.refined_budget,
+        "refined_timeout": result.refined_timeout,
+        "refined_tags": result.refined_tags,
+        "refined_agents": result.refined_agents,
+        "changes_summary": result.changes_summary,
+        "confidence_score": result.confidence_score,
+        "field_changes": field_changes_json,
+        "original_command": input.command,
+    });
+
+    JsonRpcResponse::success(id, response)
+}
+
 // ── Budget Reduction ─────────────────────────────────────
 
 /// Reduce the log list to fit within the prompt budget.
@@ -720,6 +881,40 @@ mod tests {
         assert_eq!(params.intent, "Run tests");
         assert!(params.agents.is_empty());
         assert!(params.working_dir.is_none());
+    }
+
+    #[test]
+    fn parse_edit_params_full() {
+        let json = serde_json::json!({
+            "name": "Security Audit",
+            "command": "Run a basic security check on the codebase",
+            "schedule": "0 9 * * *",
+            "budget": 2.0,
+            "timeout": 600,
+            "tags": ["security"],
+            "agents": ["security-auditor"],
+            "feedback": "Make it shorter and focus on critical vulns"
+        });
+        let params: EditParams = serde_json::from_value(json).unwrap();
+        assert_eq!(params.name, "Security Audit");
+        assert_eq!(params.feedback, "Make it shorter and focus on critical vulns");
+        assert_eq!(params.budget, 2.0);
+        assert_eq!(params.tags.len(), 1);
+    }
+
+    #[test]
+    fn parse_edit_params_defaults() {
+        let json = serde_json::json!({
+            "name": "T",
+            "command": "do thing",
+            "schedule": "* * * * *",
+            "feedback": "fix it"
+        });
+        let params: EditParams = serde_json::from_value(json).unwrap();
+        assert!(params.budget > 0.0, "budget default should be positive");
+        assert!(params.timeout > 0, "timeout default should be positive");
+        assert!(params.tags.is_empty());
+        assert!(params.agents.is_empty());
     }
 
     #[test]

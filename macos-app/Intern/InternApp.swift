@@ -15,7 +15,7 @@ struct InternApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView()
                 .environmentObject(daemonMonitor)
                 .environmentObject(eventStream)
@@ -134,7 +134,7 @@ struct InternApp: App {
                 .environmentObject(daemonMonitor)
                 .environmentObject(dashboardVM)
         }
-        .menuBarExtraStyle(.window)
+        .menuBarExtraStyle(.menu)
     }
 }
 
@@ -143,69 +143,66 @@ struct InternApp: App {
 struct MenuBarView: View {
     @EnvironmentObject var daemonMonitor: DaemonMonitor
     @EnvironmentObject var dashboardVM: DashboardViewModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Daemon status
-            HStack {
-                Circle()
-                    .fill(daemonMonitor.isConnected ? Color.inGreen : Color.inRed)
-                    .frame(width: 8, height: 8)
-                Text(daemonMonitor.isConnected ? "Intern is active" : "Intern is offline")
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .accessibilityLabel(daemonMonitor.isConnected ? "Connected to daemon" : "Disconnected from daemon")
+        // Daemon status
+        Text(daemonMonitor.isConnected ? "● Intern is active" : "○ Intern is offline")
 
-            Divider()
+        // Quick stats
+        Text("\(dashboardVM.metrics.activeTasks) tasks running")
+        Text("Success rate: \(Int(dashboardVM.metrics.overallSuccessRate))%")
+        Text("Total spend: \(formatCost(dashboardVM.metrics.totalSpend))")
 
-            // Quick stats
-            Text("\(dashboardVM.metrics.activeTasks) tasks running")
-                .font(.system(size: 11))
-            Text("Success rate: \(Int(dashboardVM.metrics.overallSuccessRate))%")
-                .font(.system(size: 11))
-            Text("Total spend: \(formatCost(dashboardVM.metrics.totalSpend))")
-                .font(.system(size: 11))
+        Divider()
 
-            Divider()
+        // Quick actions
+        Button("Open Intern") {
+            bringAppToFront()
+        }
 
-            // Quick actions
-            Button("Open Intern") {
-                NSApp.activate(ignoringOtherApps: true)
-                if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
-                    window.makeKeyAndOrderFront(nil)
-                } else {
-                    // If window was closed, open a new one
-                    NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
-                }
-            }
-
-            Button("Assign New Task...") {
-                NSApp.activate(ignoringOtherApps: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    NotificationCenter.default.post(name: .editorNewTask, object: nil)
-                }
-            }
-
-            Button("Refresh") {
-                Task { await dashboardVM.loadMetrics() }
-            }
-
-            if !daemonMonitor.isConnected {
-                Button("Start Intern") {
-                    Task { await daemonMonitor.startDaemon() }
-                }
-            }
-
-            Divider()
-
-            Button("Quit Intern") {
-                NSApp.terminate(nil)
+        Button("Assign New Task...") {
+            bringAppToFront()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                NotificationCenter.default.post(name: .editorNewTask, object: nil)
             }
         }
-        .padding(8)
-        .frame(width: 220)
-        .onAppear {
+
+        Button("Refresh") {
             Task { await dashboardVM.loadMetrics() }
+            NotificationCenter.default.post(name: .refreshData, object: nil)
+        }
+
+        if !daemonMonitor.isConnected {
+            Button("Start Intern") {
+                Task { await daemonMonitor.startDaemon() }
+            }
+        }
+
+        Divider()
+
+        Button("Quit Intern") {
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func bringAppToFront() {
+        // Use openWindow to ensure the WindowGroup window exists
+        openWindow(id: "main")
+
+        // Activate the application
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        // Make all normal windows key and front
+        DispatchQueue.main.async {
+            for window in NSApp.windows where window.canBecomeMain {
+                window.makeKeyAndOrderFront(nil)
+                break
+            }
         }
     }
 }

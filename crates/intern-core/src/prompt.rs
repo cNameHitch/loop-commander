@@ -208,6 +208,355 @@ pub fn build_retry_meta_prompt(
     prompt
 }
 
+// ── Edit Meta-Prompt ────────────────────────────────────
+
+/// The meta-prompt sent to Claude to refine an existing task draft based on
+/// user feedback.
+///
+/// Template variables:
+/// - `{{TASK_NAME}}`: The task's current name
+/// - `{{TASK_COMMAND}}`: The current command / prompt text (verbatim)
+/// - `{{TASK_SCHEDULE}}`: The cron expression or human schedule string
+/// - `{{TASK_BUDGET}}`: Budget per run in USD
+/// - `{{TASK_TIMEOUT}}`: Timeout in seconds
+/// - `{{TASK_TAGS}}`: Comma-joined tag list, or "(none)"
+/// - `{{TASK_AGENTS}}`: Comma-joined agent slug list, or "(none)"
+/// - `{{USER_FEEDBACK}}`: The user's plain-English refinement request
+pub const EDIT_META_PROMPT: &str = r#"You are an AI assistant helping to refine Intern tasks—scheduled Claude Code executions.
+
+## Current Task Draft
+
+**Name:** {{TASK_NAME}}
+**Command:**
+{{TASK_COMMAND}}
+
+**Schedule:** {{TASK_SCHEDULE}}
+**Budget:** ${{TASK_BUDGET}} per run
+**Timeout:** {{TASK_TIMEOUT}} seconds
+**Tags:** {{TASK_TAGS}}
+**Agents:** {{TASK_AGENTS}}
+
+## User Feedback
+
+The user has requested: "{{USER_FEEDBACK}}"
+
+## Refinement Guidelines
+
+1. **Preserve intent** — Keep the core goal of the task unchanged unless the user explicitly requests a change of goal.
+2. **Be specific** — Rewrite the command to directly address the user's feedback. If the command is already a `claude -p` invocation, rewrite the prompt text inside it; do not add a second `claude -p` wrapper.
+3. **Adjust constraints** — If the user requests better performance, reduce budget/timeout; if requesting thoroughness, increase them.
+4. **Improve clarity** — Make prompts concise and unambiguous. Remove filler text and redundant instructions.
+5. **Validate scheduling** — Ensure cron expressions are valid standard 5-field cron (minute hour dom month dow). Translate human-readable schedule requests to cron.
+6. **Recommend agent tags** — Suggest agent slugs (kebab-case identifiers) that fit the refined task scope. An empty array is acceptable.
+7. **Do not change working_dir** — The working directory is controlled by the user only.
+
+## Output Format
+
+Return a JSON object with this exact structure. Do not wrap it in a code fence. Do not include any text before or after the JSON.
+
+{
+  "refined_draft": {
+    "name": "string (keep unchanged unless user asks to rename)",
+    "command": "string (the complete revised command or prompt text; multi-line OK)",
+    "schedule": "string (5-field cron expression, e.g. '0 9 * * 1-5')",
+    "budget": number (USD per run, e.g. 2.5),
+    "timeout": number (seconds, e.g. 600),
+    "tags": ["string"],
+    "agents": ["string"]
+  },
+  "changes_summary": "string (1-2 sentences describing what changed and why; minimum 20 characters)",
+  "confidence_score": number (integer 0-100),
+  "field_changes": {
+    "field_name": {
+      "type": "string (one of: text_shortened, text_expanded, text_rewritten, expression_changed, numeric_increased, numeric_decreased, list_changed, unchanged)",
+      "reason": "string (one sentence explanation)"
+    }
+  }
+}
+
+Only include fields in `field_changes` that actually changed. If a field is unchanged, omit it from `field_changes` entirely.
+
+## Examples
+
+### Example 1: Shorten and focus
+
+**User feedback:** "Make it shorter and focus on security."
+
+**Input command:**
+Run a comprehensive security check on the codebase. Look for vulnerabilities including SQL injection, XSS, authentication flaws, and hardcoded secrets. Generate a detailed report with remediation advice.
+
+**Output:**
+{
+  "refined_draft": {
+    "name": "security-check",
+    "command": "Identify critical security vulnerabilities (SQL injection, XSS, hardcoded secrets). List findings with severity. No remediation advice needed.",
+    "schedule": "0 9 * * *",
+    "budget": 2.0,
+    "timeout": 600,
+    "tags": ["security", "audit"],
+    "agents": ["security-auditor"]
+  },
+  "changes_summary": "Shortened command to focus on critical vulnerability types only; removed remediation section per user request.",
+  "confidence_score": 92,
+  "field_changes": {
+    "command": {
+      "type": "text_shortened",
+      "reason": "Removed verbose preamble and remediation clause; refocused on critical vulns only."
+    }
+  }
+}
+
+### Example 2: Schedule change
+
+**User feedback:** "Run only on weekdays."
+
+**Output:**
+{
+  "refined_draft": {
+    "name": "security-check",
+    "command": "...(unchanged)...",
+    "schedule": "0 9 * * 1-5",
+    "budget": 2.0,
+    "timeout": 600,
+    "tags": ["security", "audit"],
+    "agents": ["security-auditor"]
+  },
+  "changes_summary": "Restricted schedule to Monday-Friday only as requested.",
+  "confidence_score": 98,
+  "field_changes": {
+    "schedule": {
+      "type": "expression_changed",
+      "reason": "Changed from daily to weekdays-only (1-5) per user request."
+    }
+  }
+}"#;
+
+/// Build the edit meta-prompt by substituting all template variables.
+///
+/// # Arguments
+///
+/// * `name` – Current task name.
+/// * `command` – Current command / prompt text (verbatim, may be multi-line).
+/// * `schedule` – Cron expression or human-readable schedule string.
+/// * `budget` – Budget per run in USD.
+/// * `timeout` – Timeout in seconds.
+/// * `tags` – Slice of tag strings.
+/// * `agents` – Slice of agent slug strings.
+/// * `feedback` – User's plain-English refinement request.
+pub fn build_edit_meta_prompt(
+    name: &str,
+    command: &str,
+    schedule: &str,
+    budget: f64,
+    timeout: u64,
+    tags: &[String],
+    agents: &[String],
+    feedback: &str,
+) -> String {
+    let tags_str = if tags.is_empty() {
+        "(none)".to_string()
+    } else {
+        tags.join(", ")
+    };
+
+    let agents_str = if agents.is_empty() {
+        "(none)".to_string()
+    } else {
+        agents.join(", ")
+    };
+
+    EDIT_META_PROMPT
+        .replace("{{TASK_NAME}}", name)
+        .replace("{{TASK_COMMAND}}", command)
+        .replace("{{TASK_SCHEDULE}}", schedule)
+        .replace("{{TASK_BUDGET}}", &format!("{budget:.2}"))
+        .replace("{{TASK_TIMEOUT}}", &timeout.to_string())
+        .replace("{{TASK_TAGS}}", &tags_str)
+        .replace("{{TASK_AGENTS}}", &agents_str)
+        .replace("{{USER_FEEDBACK}}", feedback)
+}
+
+/// Parse and validate Claude's raw JSON output from a prompt edit request.
+///
+/// Returns `Ok(EditResult)` when the response is structurally valid.
+/// Returns `Err(String)` with a human-readable description on failure.
+///
+/// Validation rules:
+/// - Must be parseable as JSON (strips leading/trailing markdown fences)
+/// - `refined_draft.name` must be non-empty
+/// - `refined_draft.command` must be non-empty
+/// - `refined_draft.schedule` must be non-empty
+/// - `refined_draft.budget` must be > 0.0
+/// - `refined_draft.timeout` must be > 0
+/// - `changes_summary` must be at least 20 characters
+/// - `confidence_score` must be in [0, 100]
+pub fn validate_edit_result(raw_output: &str) -> Result<EditResult, String> {
+    let trimmed = raw_output.trim();
+    let json_str = if trimmed.starts_with("```") {
+        let end = trimmed.rfind("```").unwrap_or(trimmed.len());
+        let inner = &trimmed[3..end];
+        // Strip optional language tag (e.g. "json\n")
+        if let Some(newline_pos) = inner.find('\n') {
+            inner[newline_pos + 1..].trim()
+        } else {
+            inner.trim()
+        }
+    } else {
+        trimmed
+    };
+
+    let value: serde_json::Value =
+        serde_json::from_str(json_str).map_err(|e| format!("Response is not valid JSON: {e}"))?;
+
+    let refined = value
+        .get("refined_draft")
+        .ok_or("Missing field: refined_draft")?;
+
+    let name = refined
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("refined_draft.name: missing or not a string")?
+        .to_string();
+    if name.is_empty() {
+        return Err("refined_draft.name: must not be empty".into());
+    }
+
+    let command = refined
+        .get("command")
+        .and_then(|v| v.as_str())
+        .ok_or("refined_draft.command: missing or not a string")?
+        .to_string();
+    if command.is_empty() {
+        return Err("refined_draft.command: must not be empty".into());
+    }
+
+    let schedule = refined
+        .get("schedule")
+        .and_then(|v| v.as_str())
+        .ok_or("refined_draft.schedule: missing or not a string")?
+        .to_string();
+    if schedule.is_empty() {
+        return Err("refined_draft.schedule: must not be empty".into());
+    }
+
+    let budget = refined
+        .get("budget")
+        .and_then(|v| v.as_f64())
+        .ok_or("refined_draft.budget: missing or not a number")?;
+    if budget <= 0.0 {
+        return Err("refined_draft.budget: must be greater than 0".into());
+    }
+
+    let timeout = refined
+        .get("timeout")
+        .and_then(|v| v.as_u64())
+        .ok_or("refined_draft.timeout: missing or not a non-negative integer")?;
+    if timeout == 0 {
+        return Err("refined_draft.timeout: must be greater than 0".into());
+    }
+
+    let tags = refined
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let agents = refined
+        .get("agents")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let changes_summary = value
+        .get("changes_summary")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing field: changes_summary")?
+        .to_string();
+    if changes_summary.len() < 20 {
+        return Err(format!(
+            "changes_summary: must be at least 20 characters (got {})",
+            changes_summary.len()
+        ));
+    }
+
+    let confidence_score = value
+        .get("confidence_score")
+        .and_then(|v| v.as_u64())
+        .ok_or("Missing field: confidence_score (expected integer)")?;
+    if confidence_score > 100 {
+        return Err(format!(
+            "confidence_score: out of range {confidence_score} (must be 0-100)"
+        ));
+    }
+
+    // field_changes is optional (empty object is fine)
+    let field_changes = value
+        .get("field_changes")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| {
+                    let change_type = v
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("unchanged")
+                        .to_string();
+                    let reason = v
+                        .get("reason")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    Some((k.clone(), FieldChange { change_type, reason }))
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    Ok(EditResult {
+        refined_name: name,
+        refined_command: command,
+        refined_schedule: schedule,
+        refined_budget: budget,
+        refined_timeout: timeout,
+        refined_tags: tags,
+        refined_agents: agents,
+        changes_summary,
+        confidence_score: confidence_score as u8,
+        field_changes,
+    })
+}
+
+/// The structured output from a prompt edit request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditResult {
+    pub refined_name: String,
+    pub refined_command: String,
+    pub refined_schedule: String,
+    pub refined_budget: f64,
+    pub refined_timeout: u64,
+    pub refined_tags: Vec<String>,
+    pub refined_agents: Vec<String>,
+    pub changes_summary: String,
+    pub confidence_score: u8,
+    pub field_changes: std::collections::BTreeMap<String, FieldChange>,
+}
+
+/// A single field-level change record returned by Claude.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldChange {
+    #[serde(rename = "type")]
+    pub change_type: String,
+    pub reason: String,
+}
+
 // ── Agent Registry Types ────────────────────────────────
 
 /// A single agent from the awesome-claude-code-subagents registry.
@@ -1835,6 +2184,97 @@ A Markdown report listing all findings.
             "expected capability loss warning; got: {:?}",
             outcome.warnings
         );
+    }
+
+    // ── Edit Meta-Prompt ──────────────────────────────────
+
+    #[test]
+    fn build_edit_meta_prompt_substitutes_all_variables() {
+        let prompt = build_edit_meta_prompt(
+            "My Task",
+            "Run security check",
+            "0 9 * * *",
+            2.0,
+            600,
+            &["security".to_string()],
+            &["sec-agent".to_string()],
+            "Make it shorter",
+        );
+        assert!(prompt.contains("My Task"));
+        assert!(prompt.contains("Run security check"));
+        assert!(prompt.contains("0 9 * * *"));
+        assert!(prompt.contains("$2.00"));
+        assert!(prompt.contains("600 seconds"));
+        assert!(prompt.contains("security"));
+        assert!(prompt.contains("sec-agent"));
+        assert!(prompt.contains("Make it shorter"));
+    }
+
+    #[test]
+    fn build_edit_meta_prompt_empty_tags_and_agents() {
+        let prompt = build_edit_meta_prompt(
+            "T", "do thing", "* * * * *", 1.0, 60, &[], &[], "fix it",
+        );
+        assert!(prompt.contains("(none)"), "tags should show (none)");
+        // Both Tags and Agents should use (none) placeholder
+        let tag_line = prompt.lines().find(|l| l.contains("Tags:")).unwrap();
+        assert!(tag_line.contains("(none)"), "Tags line should contain (none)");
+        let agent_line = prompt.lines().find(|l| l.contains("Agents:")).unwrap();
+        assert!(agent_line.contains("(none)"), "Agents line should contain (none)");
+    }
+
+    #[test]
+    fn validate_edit_result_accepts_valid_json() {
+        let raw = r#"{
+          "refined_draft": {
+            "name": "security-check",
+            "command": "Identify critical vulnerabilities.",
+            "schedule": "0 9 * * 1-5",
+            "budget": 3.0,
+            "timeout": 900,
+            "tags": ["security"],
+            "agents": ["security-auditor"]
+          },
+          "changes_summary": "Shortened command and changed schedule to weekdays only.",
+          "confidence_score": 87,
+          "field_changes": {
+            "command": { "type": "text_shortened", "reason": "Removed filler." },
+            "schedule": { "type": "expression_changed", "reason": "Weekdays requested." }
+          }
+        }"#;
+        let result = validate_edit_result(raw);
+        assert!(result.is_ok(), "got error: {:?}", result.err());
+        let r = result.unwrap();
+        assert_eq!(r.refined_name, "security-check");
+        assert_eq!(r.confidence_score, 87);
+        assert_eq!(r.field_changes.len(), 2);
+    }
+
+    #[test]
+    fn validate_edit_result_strips_markdown_fence() {
+        let raw = "```json\n{\"refined_draft\":{\"name\":\"t\",\"command\":\"do thing\",\"schedule\":\"* * * * *\",\"budget\":1.0,\"timeout\":60,\"tags\":[],\"agents\":[]},\"changes_summary\":\"This is a sufficiently long summary.\",\"confidence_score\":50,\"field_changes\":{}}\n```";
+        assert!(validate_edit_result(raw).is_ok());
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_empty_command() {
+        let raw = r#"{"refined_draft":{"name":"t","command":"","schedule":"* * * * *","budget":1.0,"timeout":60,"tags":[],"agents":[]},"changes_summary":"This is a sufficiently long summary.","confidence_score":50,"field_changes":{}}"#;
+        let err = validate_edit_result(raw).unwrap_err();
+        assert!(err.contains("command"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_score_out_of_range() {
+        let raw = r#"{"refined_draft":{"name":"t","command":"do thing","schedule":"* * * * *","budget":1.0,"timeout":60,"tags":[],"agents":[]},"changes_summary":"This is a sufficiently long summary.","confidence_score":101,"field_changes":{}}"#;
+        let err = validate_edit_result(raw).unwrap_err();
+        assert!(err.contains("confidence_score"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_short_summary() {
+        let raw = r#"{"refined_draft":{"name":"t","command":"do thing","schedule":"* * * * *","budget":1.0,"timeout":60,"tags":[],"agents":[]},"changes_summary":"Too short.","confidence_score":50,"field_changes":{}}"#;
+        let err = validate_edit_result(raw).unwrap_err();
+        assert!(err.contains("changes_summary"), "got: {err}");
     }
 
     #[test]

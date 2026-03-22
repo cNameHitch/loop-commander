@@ -18,7 +18,6 @@ struct PromptOptimizerPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            sectionHeader
             logSummary
             logCountStepper
             focusPicker
@@ -45,13 +44,6 @@ struct PromptOptimizerPanel: View {
 
     // MARK: - Section Header
 
-    private var sectionHeader: some View {
-        Text("OPTIMIZE WITH AI")
-            .font(.inLabel)
-            .foregroundColor(.inTextMuted)
-            .textCase(.uppercase)
-            .tracking(0.5)
-    }
 
     // MARK: - Log Summary
 

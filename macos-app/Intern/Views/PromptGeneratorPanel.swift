@@ -18,7 +18,6 @@ struct PromptGeneratorPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            sectionHeader
             intentField
             agentDisclosure
 
@@ -36,16 +35,6 @@ struct PromptGeneratorPanel: View {
                 resultPreview(result: result)
             }
         }
-    }
-
-    // MARK: - Section Header
-
-    private var sectionHeader: some View {
-        Text("GENERATE WITH AI")
-            .font(.inLabel)
-            .foregroundColor(.inTextMuted)
-            .textCase(.uppercase)
-            .tracking(0.5)
     }
 
     // MARK: - Intent Field

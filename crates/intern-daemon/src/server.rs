@@ -220,6 +220,9 @@ async fn dispatch(
         // Prompt optimization
         "prompt.optimize" => crate::prompt_handler::handle_prompt_optimize(id, params, state).await,
 
+        // Prompt edit (AI-assisted task refinement)
+        "prompt.edit" => crate::prompt_handler::handle_prompt_edit(id, params, state).await,
+
         // Agent registry
         "registry.refresh" => crate::prompt_handler::handle_registry_refresh(id, state).await,
         "registry.list" => crate::prompt_handler::handle_registry_list(id, state).await,

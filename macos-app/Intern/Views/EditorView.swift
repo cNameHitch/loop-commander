@@ -164,16 +164,6 @@ struct EditorView: View {
                 .background(statusColor(for: task.status).opacity(0.15))
                 .cornerRadius(INRadius.badge)
 
-            // Optimize button (existing tasks with history)
-            Button("Optimize") {
-                NotificationCenter.default.post(
-                    name: .editorOpenTask,
-                    object: nil,
-                    userInfo: ["task": task]
-                )
-            }
-            .buttonStyle(INToolbarButtonStyle())
-
             // Edit button
             Button("Edit") {
                 NotificationCenter.default.post(
@@ -464,6 +454,14 @@ struct EditorView: View {
             .buttonStyle(INSecondaryButtonStyle())
             .keyboardShortcut(.escape, modifiers: [])
 
+            if vm.canUndoEdit {
+                Button("Undo Edit") {
+                    vm.undoEdit()
+                }
+                .buttonStyle(INSecondaryButtonStyle())
+                .transition(.inFadeSlide)
+            }
+
             Button(vm.isCreating ? "Create Task" : "Save Changes") {
                 Task { await vm.save() }
             }
@@ -471,6 +469,7 @@ struct EditorView: View {
             .disabled(vm.isSaving)
             .keyboardShortcut("s", modifiers: .command)
         }
+        .animation(.inQuick, value: vm.canUndoEdit)
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .background(Color.inSurface)
@@ -614,31 +613,54 @@ struct EditorView: View {
 
     private var settingsPane: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 4) {
+            VStack(spacing: 8) {
                 // AI Prompt Generator (new tasks only)
                 if vm.isCreating {
-                    PromptGeneratorPanel(
-                        vm: vm.promptGeneratorVM,
-                        draft: $vm.draft,
-                        workingDir: vm.draft.workingDir
-                    )
-                    .padding(.bottom, 8)
+                    CollapsibleSection(title: "Generate with AI") {
+                        PromptGeneratorPanel(
+                            vm: vm.promptGeneratorVM,
+                            draft: $vm.draft,
+                            workingDir: vm.draft.workingDir
+                        )
+                    }
                 }
 
                 // AI Prompt Optimizer (existing tasks only)
                 if case .editing(let taskId) = vm.editorState {
-                    PromptOptimizerPanel(
-                        vm: vm.promptOptimizerVM,
-                        taskId: taskId,
-                        onApply: { vm.applyOptimization() }
-                    )
-                    .padding(.bottom, 8)
+                    CollapsibleSection(title: "Optimize with AI") {
+                        PromptOptimizerPanel(
+                            vm: vm.promptOptimizerVM,
+                            taskId: taskId,
+                            onApply: { vm.applyOptimization() }
+                        )
+                    }
                 }
 
-                settingsSection("Schedule") { scheduleSection }
-                settingsSection("Execution") { executionSection }
-                settingsSection("Tags") { tagsSection }
-                settingsSection("Environment Variables") { envVarsSection }
+                // AI Prompt Editor (both creating and editing)
+                CollapsibleSection(title: "Edit with AI") {
+                    PromptEditorPanel(
+                        vm: vm.promptEditorVM,
+                        draft: vm.draft,
+                        onApply: { vm.applyEdit() },
+                        onDiscard: { vm.promptEditorVM.reset() }
+                    )
+                }
+
+                CollapsibleSection(title: "Schedule") {
+                    scheduleSection
+                }
+
+                CollapsibleSection(title: "Execution") {
+                    executionSection
+                }
+
+                CollapsibleSection(title: "Tags") {
+                    tagsSection
+                }
+
+                CollapsibleSection(title: "Environment Variables") {
+                    envVarsSection
+                }
             }
             .padding(16)
         }
@@ -648,30 +670,6 @@ struct EditorView: View {
                 Task { await vm.promptGeneratorVM.loadAgents() }
             }
         }
-    }
-
-    // MARK: - Settings Section Helper
-
-    @ViewBuilder
-    private func settingsSection<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title.uppercased())
-                .font(.inLabel)
-                .foregroundColor(.inTextMuted)
-                .tracking(0.5)
-            content()
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.inSurfaceContainer)
-        .overlay(
-            RoundedRectangle(cornerRadius: INRadius.panel)
-                .stroke(Color.inBorder, lineWidth: INBorder.standard)
-        )
-        .cornerRadius(INRadius.panel)
     }
 
     // MARK: - Schedule Section

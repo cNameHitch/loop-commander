@@ -63,6 +63,9 @@ class EditorViewModel: ObservableObject {
     /// Child view model for AI prompt optimization.
     @Published var promptOptimizerVM = PromptOptimizerViewModel()
 
+    /// Child view model for AI prompt editing.
+    @Published var promptEditorVM = PromptEditorViewModel()
+
     // MARK: - Internal State
 
     /// Snapshot of the draft as it existed when editing began; used for dirty
@@ -105,6 +108,7 @@ class EditorViewModel: ObservableObject {
         self.client = client
         promptGeneratorVM.setClient(client)
         promptOptimizerVM.setClient(client)
+        promptEditorVM.setClient(client)
     }
 
     // MARK: - Lifecycle
@@ -122,6 +126,8 @@ class EditorViewModel: ObservableObject {
         selectedDayOfMonth = 1
         error = nil
         validationErrors = []
+        promptEditorVM.reset()
+        editUndoSnapshot = nil
     }
 
     /// Load an existing task into the editor for modification.
@@ -133,6 +139,8 @@ class EditorViewModel: ObservableObject {
         taskId = task.id
         error = nil
         validationErrors = []
+        promptEditorVM.reset()
+        editUndoSnapshot = nil
         inferPresetFromCron(draft.schedule)
         Task { await promptOptimizerVM.loadLogs(taskId: task.id) }
     }
@@ -228,9 +236,33 @@ class EditorViewModel: ObservableObject {
         promptOptimizerVM.applyOptimization(to: &draft)
     }
 
+    /// The draft state captured immediately before the last `applyEdit` call.
+    /// Nil until an edit has been applied; reset to nil on discard or new task load.
+    private var editUndoSnapshot: INTaskDraft? = nil
+
+    /// Apply the editor VM's result to the current draft and save the undo snapshot.
+    func applyEdit() {
+        editUndoSnapshot = promptEditorVM.applyEdit(to: &draft)
+        promptEditorVM.reset()
+    }
+
+    /// Revert to the pre-edit draft state.  No-op if no edit has been applied.
+    func undoEdit() {
+        guard let snapshot = editUndoSnapshot else { return }
+        draft = snapshot
+        editUndoSnapshot = nil
+    }
+
+    /// True when there is an undo-able edit that can be reverted.
+    var canUndoEdit: Bool {
+        editUndoSnapshot != nil
+    }
+
     /// Perform the actual discard action – called when the user confirms the alert.
     func discard() {
         promptOptimizerVM.reset()
+        promptEditorVM.reset()
+        editUndoSnapshot = nil
         showDiscardAlert = false
         switch editorState {
         case .empty:
