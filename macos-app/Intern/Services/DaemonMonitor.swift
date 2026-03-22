@@ -96,8 +96,10 @@ class DaemonMonitor: ObservableObject {
     func startDaemon() async {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let daemonPaths = [
+            home.appendingPathComponent(".local/bin/intern").path,
             home.appendingPathComponent(".cargo/bin/intern").path,
             "/usr/local/bin/intern",
+            "/opt/homebrew/bin/intern",
         ]
 
         var daemonPath: String?

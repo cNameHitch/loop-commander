@@ -10,13 +10,32 @@ class TaskListViewModel: ObservableObject {
     @Published var templates: [TaskTemplate] = []
 
     private var client: DaemonClient?
+    private var refreshTask: Task<Void, Never>?
 
     func setClient(_ client: DaemonClient) {
         self.client = client
     }
 
+    /// Start a background refresh loop that reloads tasks every 15 seconds.
+    func startRefreshTimer() {
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                guard let self else { break }
+                await self.loadTasks()
+            }
+        }
+    }
+
+    /// Stop the background refresh loop.
+    func stopRefreshTimer() {
+        refreshTask?.cancel()
+        refreshTask = nil
+    }
+
     func loadTasks() async {
-        guard let client = client else { return }
+        guard let client = client, client.isConnected else { return }
         isLoading = true
         error = nil
 

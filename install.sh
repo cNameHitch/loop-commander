@@ -371,29 +371,27 @@ fi
 # Success message
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Launch the app (auto-starts the daemon)
+# ---------------------------------------------------------------------------
+
+if [[ "${CLI_ONLY}" == "false" ]] && [[ -d "${APP_DIR}/Intern.app" ]]; then
+    info "Launching Intern..."
+    open "${APP_DIR}/Intern.app"
+fi
+
 printf "\n"
 printf "Intern %s installed successfully.\n" "${VERSION}"
 printf "\n"
-printf "Next steps:\n"
+printf "The Intern app is now running and the daemon will start automatically.\n"
 printf "\n"
-printf "  1. Start the daemon:\n"
-printf "       intern &\n"
+printf "Quick start:\n"
 printf "\n"
-printf "  2. Verify the daemon is running:\n"
-printf "       intern daemon status\n"
-printf "\n"
-printf "  3. Create your first task:\n"
+printf "  Create your first task:\n"
 printf "       intern add \\\\\n"
 printf "         --name \"My First Task\" \\\\\n"
 printf "         --command \"claude -p 'Review recent commits for issues.'\" \\\\\n"
 printf "         --schedule \"0 9 * * 1-5\"\n"
 printf "\n"
-
-if [[ "${CLI_ONLY}" == "false" ]]; then
-    printf "  4. Open the dashboard:\n"
-    printf "       open \"~/Applications/Intern.app\"\n"
-    printf "\n"
-fi
-
 printf "Documentation: https://github.com/%s\n" "${REPO}"
 printf "\n"

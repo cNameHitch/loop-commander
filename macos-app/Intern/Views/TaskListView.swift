@@ -168,10 +168,21 @@ struct TaskListView: View {
                 await taskListVM.loadTasks()
                 await dashboardVM.loadMetrics()
                 dashboardVM.startRefreshTimer()
+                taskListVM.startRefreshTimer()
             }
         }
         .onDisappear {
             dashboardVM.stopRefreshTimer()
+            taskListVM.stopRefreshTimer()
+        }
+        .onChange(of: daemonMonitor.isConnected) { connected in
+            if connected {
+                taskListVM.error = nil
+                Task {
+                    await taskListVM.loadTasks()
+                    await dashboardVM.loadMetrics()
+                }
+            }
         }
     }
 }

@@ -30,6 +30,14 @@ struct InternApp: App {
                     // Start monitoring daemon connection (idempotent)
                     daemonMonitor.start()
 
+                    // Auto-launch daemon if not connected after a brief wait
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        if !daemonMonitor.isConnected {
+                            await daemonMonitor.startDaemon()
+                        }
+                    }
+
                     // Start event stream (idempotent)
                     eventStream.start()
 
