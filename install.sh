@@ -107,6 +107,33 @@ require_cmd unzip
 require_cmd shasum
 
 # ---------------------------------------------------------------------------
+# Claude Code prerequisite
+# ---------------------------------------------------------------------------
+
+if command -v claude &>/dev/null; then
+    CLAUDE_VERSION="$(claude --version 2>/dev/null || echo "unknown")"
+    info "Claude Code found: ${CLAUDE_VERSION}"
+else
+    info "Claude Code is not installed — installing now..."
+    info "(Intern requires Claude Code to execute scheduled tasks)"
+
+    if command -v npm &>/dev/null; then
+        npm install -g @anthropic-ai/claude-code \
+            || die "Failed to install Claude Code via npm. Please install it manually: https://docs.anthropic.com/en/docs/claude-code/overview"
+        CLAUDE_VERSION="$(claude --version 2>/dev/null || echo "unknown")"
+        success "Claude Code installed: ${CLAUDE_VERSION}"
+    elif command -v brew &>/dev/null; then
+        brew install claude-code \
+            || die "Failed to install Claude Code via Homebrew. Please install it manually: https://docs.anthropic.com/en/docs/claude-code/overview"
+        CLAUDE_VERSION="$(claude --version 2>/dev/null || echo "unknown")"
+        success "Claude Code installed: ${CLAUDE_VERSION}"
+    else
+        die "Claude Code is required but not installed, and neither npm nor brew were found to install it automatically. \
+Please install Claude Code first: https://docs.anthropic.com/en/docs/claude-code/overview"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Code signing helper (required for macOS notifications)
 # ---------------------------------------------------------------------------
 
