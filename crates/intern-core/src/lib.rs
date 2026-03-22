@@ -1578,6 +1578,76 @@ mod tests {
         assert_eq!(roundtrip.run_count, 5);
     }
 
+    // -- DaemonEvent additional serde tests -----------------------------------
+
+    #[test]
+    fn daemon_event_budget_exceeded_serde_roundtrip() {
+        let event = DaemonEvent::BudgetExceeded {
+            task_id: "lc-aabbccdd".into(),
+            task_name: "Budget Task".into(),
+            daily_spend: 4.75,
+            cap: 5.0,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let roundtrip: DaemonEvent = serde_json::from_str(&json).unwrap();
+        match roundtrip {
+            DaemonEvent::BudgetExceeded {
+                task_id,
+                task_name,
+                daily_spend,
+                cap,
+            } => {
+                assert_eq!(task_id, "lc-aabbccdd");
+                assert_eq!(task_name, "Budget Task");
+                assert!((daily_spend - 4.75).abs() < f64::EPSILON);
+                assert!((cap - 5.0).abs() < f64::EPSILON);
+            }
+            _ => panic!("expected BudgetExceeded variant"),
+        }
+    }
+
+    #[test]
+    fn daemon_event_health_repair_serde_roundtrip() {
+        let event = DaemonEvent::HealthRepair {
+            task_id: "lc-11223344".into(),
+            action: "re-registered launchd agent".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let roundtrip: DaemonEvent = serde_json::from_str(&json).unwrap();
+        match roundtrip {
+            DaemonEvent::HealthRepair { task_id, action } => {
+                assert_eq!(task_id, "lc-11223344");
+                assert_eq!(action, "re-registered launchd agent");
+            }
+            _ => panic!("expected HealthRepair variant"),
+        }
+    }
+
+    // -- InternError additional display tests ---------------------------------
+
+    #[test]
+    fn intern_error_budget_exceeded_display() {
+        let task_id = "lc-cafebabe";
+        let err = InternError::BudgetExceeded {
+            task_id: task_id.into(),
+            spent: 7.25,
+            limit: 5.0,
+        };
+        let msg = format!("{err}");
+        assert!(
+            msg.contains(task_id),
+            "display should contain task_id; got: {msg}"
+        );
+        assert!(
+            msg.contains("7.25"),
+            "display should contain spent amount; got: {msg}"
+        );
+        assert!(
+            msg.contains("5.00"),
+            "display should contain limit amount; got: {msg}"
+        );
+    }
+
     // -- DryRunResult -----------------------------------------------------
 
     #[test]

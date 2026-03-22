@@ -2321,4 +2321,294 @@ A Markdown report listing all findings.
             outcome.warnings
         );
     }
+
+    // ── validate_edit_result additional tests ────────────────────────────────
+
+    /// Convenience: build a valid JSON payload for validate_edit_result with
+    /// one field overridden by `patch`.
+    fn make_valid_edit_json(patch: serde_json::Value) -> String {
+        let mut base = serde_json::json!({
+            "refined_draft": {
+                "name": "task",
+                "command": "run it",
+                "schedule": "* * * * *",
+                "budget": 2.0,
+                "timeout": 600,
+                "tags": [],
+                "agents": []
+            },
+            "changes_summary": "Made it more focused on the key objective.",
+            "confidence_score": 80,
+            "field_changes": {}
+        });
+        if let serde_json::Value::Object(ref patch_map) = patch {
+            for (k, v) in patch_map {
+                if k == "refined_draft" {
+                    if let serde_json::Value::Object(ref inner) = v {
+                        let rd = base["refined_draft"].as_object_mut().unwrap();
+                        for (ik, iv) in inner {
+                            rd.insert(ik.clone(), iv.clone());
+                        }
+                    }
+                } else {
+                    base[k] = v.clone();
+                }
+            }
+        }
+        base.to_string()
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_zero_budget() {
+        let raw = make_valid_edit_json(serde_json::json!({
+            "refined_draft": { "budget": 0.0 }
+        }));
+        let err = validate_edit_result(&raw).unwrap_err();
+        assert!(err.contains("budget"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_negative_budget() {
+        let raw = make_valid_edit_json(serde_json::json!({
+            "refined_draft": { "budget": -1.5 }
+        }));
+        assert!(validate_edit_result(&raw).is_err());
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_zero_timeout() {
+        let raw = make_valid_edit_json(serde_json::json!({
+            "refined_draft": { "timeout": 0 }
+        }));
+        let err = validate_edit_result(&raw).unwrap_err();
+        assert!(err.contains("timeout"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_missing_refined_draft() {
+        let raw = r#"{
+          "changes_summary": "Made it more focused on the key objective.",
+          "confidence_score": 80,
+          "field_changes": {}
+        }"#;
+        let err = validate_edit_result(raw).unwrap_err();
+        assert!(err.contains("refined_draft"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_missing_confidence_score() {
+        let raw = r#"{
+          "refined_draft": {
+            "name": "task", "command": "run it", "schedule": "* * * * *",
+            "budget": 2.0, "timeout": 600, "tags": [], "agents": []
+          },
+          "changes_summary": "Made it more focused on the key objective.",
+          "field_changes": {}
+        }"#;
+        let err = validate_edit_result(raw).unwrap_err();
+        assert!(err.contains("confidence_score"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_empty_schedule() {
+        let raw = make_valid_edit_json(serde_json::json!({
+            "refined_draft": { "schedule": "" }
+        }));
+        let err = validate_edit_result(&raw).unwrap_err();
+        assert!(err.contains("schedule"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_edit_result_rejects_empty_name() {
+        let raw = make_valid_edit_json(serde_json::json!({
+            "refined_draft": { "name": "" }
+        }));
+        let err = validate_edit_result(&raw).unwrap_err();
+        assert!(err.contains("name"), "got: {err}");
+    }
+
+    #[test]
+    fn edit_result_serde_roundtrip() {
+        let result = EditResult {
+            refined_name: "my-task".into(),
+            refined_command: "claude -p 'do the thing'".into(),
+            refined_schedule: "0 9 * * 1-5".into(),
+            refined_budget: 3.5,
+            refined_timeout: 900,
+            refined_tags: vec!["security".into()],
+            refined_agents: vec!["security-auditor".into()],
+            changes_summary: "Adjusted schedule to run on weekdays only.".into(),
+            confidence_score: 90,
+            field_changes: {
+                let mut m = std::collections::BTreeMap::new();
+                m.insert(
+                    "schedule".into(),
+                    FieldChange {
+                        change_type: "expression_changed".into(),
+                        reason: "Weekdays only.".into(),
+                    },
+                );
+                m
+            },
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let roundtrip: EditResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.refined_name, result.refined_name);
+        assert_eq!(roundtrip.refined_command, result.refined_command);
+        assert_eq!(roundtrip.refined_schedule, result.refined_schedule);
+        assert!((roundtrip.refined_budget - result.refined_budget).abs() < f64::EPSILON);
+        assert_eq!(roundtrip.refined_timeout, result.refined_timeout);
+        assert_eq!(roundtrip.refined_tags, result.refined_tags);
+        assert_eq!(roundtrip.refined_agents, result.refined_agents);
+        assert_eq!(roundtrip.changes_summary, result.changes_summary);
+        assert_eq!(roundtrip.confidence_score, result.confidence_score);
+        assert_eq!(roundtrip.field_changes.len(), result.field_changes.len());
+    }
+
+    #[test]
+    fn field_change_serde_roundtrip() {
+        let fc = FieldChange {
+            change_type: "text_shortened".into(),
+            reason: "Removed filler words.".into(),
+        };
+        let json = serde_json::to_string(&fc).unwrap();
+        // The field is renamed to "type" in JSON (not "change_type").
+        assert!(
+            json.contains(r#""type""#),
+            "expected \"type\" key in JSON; got: {json}"
+        );
+        assert!(
+            !json.contains("change_type"),
+            "should not use the Rust field name; got: {json}"
+        );
+        let roundtrip: FieldChange = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.change_type, fc.change_type);
+        assert_eq!(roundtrip.reason, fc.reason);
+    }
+
+    #[test]
+    fn build_edit_meta_prompt_multiline_command_preserved() {
+        let command = "line one\nline two\nline three";
+        let prompt = build_edit_meta_prompt(&EditPromptParams {
+            name: "Task",
+            command,
+            schedule: "* * * * *",
+            budget: 1.0,
+            timeout: 60,
+            tags: &[],
+            agents: &[],
+            feedback: "refine it",
+        });
+        assert!(
+            prompt.contains("line one\nline two\nline three"),
+            "newlines inside command should be preserved; got prompt of length {}",
+            prompt.len()
+        );
+    }
+
+    #[test]
+    fn validate_edit_result_field_changes_missing_type_defaults_to_unchanged() {
+        let raw = r#"{
+          "refined_draft": {
+            "name": "task", "command": "run it", "schedule": "* * * * *",
+            "budget": 2.0, "timeout": 600, "tags": [], "agents": []
+          },
+          "changes_summary": "Made it more focused on the key objective.",
+          "confidence_score": 80,
+          "field_changes": {
+            "command": { "reason": "some reason" }
+          }
+        }"#;
+        let result = validate_edit_result(raw).unwrap();
+        let change = result.field_changes.get("command").unwrap();
+        assert_eq!(
+            change.change_type, "unchanged",
+            "missing 'type' should default to 'unchanged'"
+        );
+    }
+
+    #[test]
+    fn validate_edit_result_field_changes_missing_reason_defaults_to_empty() {
+        let raw = r#"{
+          "refined_draft": {
+            "name": "task", "command": "run it", "schedule": "* * * * *",
+            "budget": 2.0, "timeout": 600, "tags": [], "agents": []
+          },
+          "changes_summary": "Made it more focused on the key objective.",
+          "confidence_score": 80,
+          "field_changes": {
+            "schedule": { "type": "expression_changed" }
+          }
+        }"#;
+        let result = validate_edit_result(raw).unwrap();
+        let change = result.field_changes.get("schedule").unwrap();
+        assert_eq!(
+            change.reason, "",
+            "missing 'reason' should default to empty string"
+        );
+    }
+
+    #[test]
+    fn validate_edit_result_accepts_score_zero() {
+        let raw = make_valid_edit_json(serde_json::json!({ "confidence_score": 0 }));
+        let result = validate_edit_result(&raw).unwrap();
+        assert_eq!(result.confidence_score, 0);
+    }
+
+    #[test]
+    fn validate_edit_result_accepts_score_100() {
+        let raw = make_valid_edit_json(serde_json::json!({ "confidence_score": 100 }));
+        let result = validate_edit_result(&raw).unwrap();
+        assert_eq!(result.confidence_score, 100);
+    }
+
+    #[test]
+    fn validate_optimization_result_no_warning_at_exactly_25_percent() {
+        // original = 100 chars, optimized = 25 chars → exactly 25% → no warning.
+        // The warning fires only when opt_len * 4 < orig_len, i.e. < 25%.
+        let original = "A".repeat(100);
+        let optimized = "B".repeat(25);
+        let raw = serde_json::json!({
+            "optimized_command": optimized,
+            "changes_summary": "Reduced the command to the minimal necessary instructions.",
+            "confidence_score": 70,
+            "optimization_categories": ["efficiency"]
+        })
+        .to_string();
+        let outcome = validate_optimization_result(&raw, &original).unwrap();
+        assert!(
+            !outcome
+                .warnings
+                .iter()
+                .any(|w| w.contains("capability loss")),
+            "should NOT warn at exactly 25%; got: {:?}",
+            outcome.warnings
+        );
+    }
+
+    #[test]
+    fn compute_pattern_annotations_all_failures() {
+        let logs = vec![
+            make_log(0, 1, "failure", None),
+            make_log(1, 1, "failure", None),
+            make_log(2, 1, "failure", None),
+        ];
+        let annotations = compute_pattern_annotations(&logs);
+        assert!(
+            annotations.contains("POOR"),
+            "0% success rate should be labelled POOR; got: {annotations}"
+        );
+    }
+
+    #[test]
+    fn format_log_no_output_shows_fallback_message() {
+        let mut log = make_log(0, 0, "success", None);
+        log.stdout_excerpt = String::new();
+        log.stderr_excerpt = String::new();
+        let formatted = format_log_for_prompt(&log);
+        assert!(
+            formatted.contains("no output captured"),
+            "empty stdout+stderr should show fallback message; got: {formatted}"
+        );
+    }
 }

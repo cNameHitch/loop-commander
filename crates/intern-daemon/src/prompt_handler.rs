@@ -920,6 +920,39 @@ mod tests {
     }
 
     #[test]
+    fn parse_edit_params_rejects_missing_feedback() {
+        // "feedback" is a required field on EditParams (no #[serde(default)]).
+        let json = serde_json::json!({
+            "name": "My Task",
+            "command": "do thing",
+            "schedule": "* * * * *"
+            // feedback intentionally omitted
+        });
+        let result = serde_json::from_value::<EditParams>(json);
+        assert!(
+            result.is_err(),
+            "expected deserialization to fail without 'feedback' field"
+        );
+    }
+
+    #[test]
+    fn parse_edit_params_accepts_empty_tags_and_agents() {
+        let json = serde_json::json!({
+            "name": "My Task",
+            "command": "do thing",
+            "schedule": "* * * * *",
+            "feedback": "make it shorter"
+            // tags and agents omitted — should default to empty vecs
+        });
+        let params: EditParams = serde_json::from_value(json).unwrap();
+        assert!(params.tags.is_empty(), "tags should default to empty vec");
+        assert!(
+            params.agents.is_empty(),
+            "agents should default to empty vec"
+        );
+    }
+
+    #[test]
     fn parse_regenerate_params() {
         let json = serde_json::json!({
             "intent": "Review PRs",
