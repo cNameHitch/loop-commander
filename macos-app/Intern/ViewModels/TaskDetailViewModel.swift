@@ -11,12 +11,20 @@ class TaskDetailViewModel: ObservableObject {
     @Published var showDryRun: Bool = false
 
     private var client: DaemonClient?
+    private var pollTask: Task<Void, Never>?
+    private var currentTaskId: String?
 
     func setClient(_ client: DaemonClient) {
         self.client = client
     }
 
     func loadTask(_ id: String) async {
+        // Cancel poll if switching to a different task.
+        if id != currentTaskId {
+            pollTask?.cancel()
+            pollTask = nil
+            currentTaskId = id
+        }
         guard let client = client else { return }
         isLoading = true
         error = nil
@@ -78,9 +86,11 @@ class TaskDetailViewModel: ObservableObject {
     }
 
     private func pollWhileRunning(_ id: String) {
-        Task {
-            while let t = task, t.status == .running {
+        pollTask?.cancel()
+        pollTask = Task {
+            while !Task.isCancelled, let t = task, t.status == .running {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { break }
                 await loadTask(id)
             }
         }

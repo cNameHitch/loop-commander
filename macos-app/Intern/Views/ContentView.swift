@@ -31,7 +31,7 @@ struct ContentView: View {
             // Sidebar
             SidebarView(
                 selection: guardedSelection,
-                activeCount: dashboardVM.activeCount,
+                activeCount: taskListVM.tasks.filter { $0.status == .active || $0.status == .running }.count,
                 editorIsDirty: editorVM.isDirty
             )
             .frame(minWidth: 205, idealWidth: 220, maxWidth: 260)
