@@ -7,10 +7,9 @@
 
 use intern_config::RegistryManager;
 use intern_core::prompt::{
-    build_edit_meta_prompt, build_meta_prompt, build_optimization_prompt,
-    build_retry_meta_prompt, truncate_log_for_prompt, validate_edit_result,
-    validate_generated_prompt, validate_optimization_result,
-    LogSummary, OptimizationFocus, ParsedPrompt, ValidationOutcome,
+    build_edit_meta_prompt, build_meta_prompt, build_optimization_prompt, build_retry_meta_prompt,
+    truncate_log_for_prompt, validate_edit_result, validate_generated_prompt,
+    validate_optimization_result, LogSummary, OptimizationFocus, ParsedPrompt, ValidationOutcome,
 };
 use intern_core::{rpc_errors, JsonRpcResponse, LogQuery, TaskId};
 use serde::Deserialize;
@@ -897,7 +896,10 @@ mod tests {
         });
         let params: EditParams = serde_json::from_value(json).unwrap();
         assert_eq!(params.name, "Security Audit");
-        assert_eq!(params.feedback, "Make it shorter and focus on critical vulns");
+        assert_eq!(
+            params.feedback,
+            "Make it shorter and focus on critical vulns"
+        );
         assert_eq!(params.budget, 2.0);
         assert_eq!(params.tags.len(), 1);
     }

@@ -514,7 +514,13 @@ pub fn validate_edit_result(raw_output: &str) -> Result<EditResult, String> {
                         .and_then(|r| r.as_str())
                         .unwrap_or("")
                         .to_string();
-                    Some((k.clone(), FieldChange { change_type, reason }))
+                    Some((
+                        k.clone(),
+                        FieldChange {
+                            change_type,
+                            reason,
+                        },
+                    ))
                 })
                 .collect::<std::collections::BTreeMap<_, _>>()
         })
@@ -2212,15 +2218,20 @@ A Markdown report listing all findings.
 
     #[test]
     fn build_edit_meta_prompt_empty_tags_and_agents() {
-        let prompt = build_edit_meta_prompt(
-            "T", "do thing", "* * * * *", 1.0, 60, &[], &[], "fix it",
-        );
+        let prompt =
+            build_edit_meta_prompt("T", "do thing", "* * * * *", 1.0, 60, &[], &[], "fix it");
         assert!(prompt.contains("(none)"), "tags should show (none)");
         // Both Tags and Agents should use (none) placeholder
         let tag_line = prompt.lines().find(|l| l.contains("Tags:")).unwrap();
-        assert!(tag_line.contains("(none)"), "Tags line should contain (none)");
+        assert!(
+            tag_line.contains("(none)"),
+            "Tags line should contain (none)"
+        );
         let agent_line = prompt.lines().find(|l| l.contains("Agents:")).unwrap();
-        assert!(agent_line.contains("(none)"), "Agents line should contain (none)");
+        assert!(
+            agent_line.contains("(none)"),
+            "Agents line should contain (none)"
+        );
     }
 
     #[test]
