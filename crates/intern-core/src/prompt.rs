@@ -335,45 +335,49 @@ Run a comprehensive security check on the codebase. Look for vulnerabilities inc
 ///
 /// # Arguments
 ///
-/// * `name` – Current task name.
-/// * `command` – Current command / prompt text (verbatim, may be multi-line).
-/// * `schedule` – Cron expression or human-readable schedule string.
-/// * `budget` – Budget per run in USD.
-/// * `timeout` – Timeout in seconds.
-/// * `tags` – Slice of tag strings.
-/// * `agents` – Slice of agent slug strings.
-/// * `feedback` – User's plain-English refinement request.
-pub fn build_edit_meta_prompt(
-    name: &str,
-    command: &str,
-    schedule: &str,
-    budget: f64,
-    timeout: u64,
-    tags: &[String],
-    agents: &[String],
-    feedback: &str,
-) -> String {
-    let tags_str = if tags.is_empty() {
+/// Parameters for building an edit meta-prompt.
+pub struct EditPromptParams<'a> {
+    /// Current task name.
+    pub name: &'a str,
+    /// Current command / prompt text (verbatim, may be multi-line).
+    pub command: &'a str,
+    /// Cron expression or human-readable schedule string.
+    pub schedule: &'a str,
+    /// Budget per run in USD.
+    pub budget: f64,
+    /// Timeout in seconds.
+    pub timeout: u64,
+    /// Slice of tag strings.
+    pub tags: &'a [String],
+    /// Slice of agent slug strings.
+    pub agents: &'a [String],
+    /// User's plain-English refinement request.
+    pub feedback: &'a str,
+}
+
+/// Build the edit meta-prompt by substituting all template variables.
+pub fn build_edit_meta_prompt(params: &EditPromptParams<'_>) -> String {
+    let tags_str = if params.tags.is_empty() {
         "(none)".to_string()
     } else {
-        tags.join(", ")
+        params.tags.join(", ")
     };
 
-    let agents_str = if agents.is_empty() {
+    let agents_str = if params.agents.is_empty() {
         "(none)".to_string()
     } else {
-        agents.join(", ")
+        params.agents.join(", ")
     };
 
     EDIT_META_PROMPT
-        .replace("{{TASK_NAME}}", name)
-        .replace("{{TASK_COMMAND}}", command)
-        .replace("{{TASK_SCHEDULE}}", schedule)
-        .replace("{{TASK_BUDGET}}", &format!("{budget:.2}"))
-        .replace("{{TASK_TIMEOUT}}", &timeout.to_string())
+        .replace("{{TASK_NAME}}", params.name)
+        .replace("{{TASK_COMMAND}}", params.command)
+        .replace("{{TASK_SCHEDULE}}", params.schedule)
+        .replace("{{TASK_BUDGET}}", &format!("{:.2}", params.budget))
+        .replace("{{TASK_TIMEOUT}}", &params.timeout.to_string())
         .replace("{{TASK_TAGS}}", &tags_str)
         .replace("{{TASK_AGENTS}}", &agents_str)
-        .replace("{{USER_FEEDBACK}}", feedback)
+        .replace("{{USER_FEEDBACK}}", params.feedback)
 }
 
 /// Parse and validate Claude's raw JSON output from a prompt edit request.
@@ -503,7 +507,7 @@ pub fn validate_edit_result(raw_output: &str) -> Result<EditResult, String> {
         .and_then(|v| v.as_object())
         .map(|obj| {
             obj.iter()
-                .filter_map(|(k, v)| {
+                .map(|(k, v)| {
                     let change_type = v
                         .get("type")
                         .and_then(|t| t.as_str())
@@ -514,13 +518,13 @@ pub fn validate_edit_result(raw_output: &str) -> Result<EditResult, String> {
                         .and_then(|r| r.as_str())
                         .unwrap_or("")
                         .to_string();
-                    Some((
+                    (
                         k.clone(),
                         FieldChange {
                             change_type,
                             reason,
                         },
-                    ))
+                    )
                 })
                 .collect::<std::collections::BTreeMap<_, _>>()
         })
@@ -2196,16 +2200,18 @@ A Markdown report listing all findings.
 
     #[test]
     fn build_edit_meta_prompt_substitutes_all_variables() {
-        let prompt = build_edit_meta_prompt(
-            "My Task",
-            "Run security check",
-            "0 9 * * *",
-            2.0,
-            600,
-            &["security".to_string()],
-            &["sec-agent".to_string()],
-            "Make it shorter",
-        );
+        let tags = vec!["security".to_string()];
+        let agents = vec!["sec-agent".to_string()];
+        let prompt = build_edit_meta_prompt(&EditPromptParams {
+            name: "My Task",
+            command: "Run security check",
+            schedule: "0 9 * * *",
+            budget: 2.0,
+            timeout: 600,
+            tags: &tags,
+            agents: &agents,
+            feedback: "Make it shorter",
+        });
         assert!(prompt.contains("My Task"));
         assert!(prompt.contains("Run security check"));
         assert!(prompt.contains("0 9 * * *"));
@@ -2218,8 +2224,16 @@ A Markdown report listing all findings.
 
     #[test]
     fn build_edit_meta_prompt_empty_tags_and_agents() {
-        let prompt =
-            build_edit_meta_prompt("T", "do thing", "* * * * *", 1.0, 60, &[], &[], "fix it");
+        let prompt = build_edit_meta_prompt(&EditPromptParams {
+            name: "T",
+            command: "do thing",
+            schedule: "* * * * *",
+            budget: 1.0,
+            timeout: 60,
+            tags: &[],
+            agents: &[],
+            feedback: "fix it",
+        });
         assert!(prompt.contains("(none)"), "tags should show (none)");
         // Both Tags and Agents should use (none) placeholder
         let tag_line = prompt.lines().find(|l| l.contains("Tags:")).unwrap();

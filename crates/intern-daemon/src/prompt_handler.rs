@@ -574,16 +574,16 @@ pub async fn handle_prompt_edit(
     }
 
     // 2. Build meta-prompt.
-    let meta_prompt = build_edit_meta_prompt(
-        &input.name,
-        &input.command,
-        &input.schedule,
-        input.budget,
-        input.timeout,
-        &input.tags,
-        &input.agents,
-        &feedback,
-    );
+    let meta_prompt = build_edit_meta_prompt(&intern_core::prompt::EditPromptParams {
+        name: &input.name,
+        command: &input.command,
+        schedule: &input.schedule,
+        budget: input.budget,
+        timeout: input.timeout,
+        tags: &input.tags,
+        agents: &input.agents,
+        feedback: &feedback,
+    });
 
     // 3. Invoke Claude.
     let raw_output = match invoke_claude(&meta_prompt).await {
